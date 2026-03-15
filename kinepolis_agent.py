@@ -1,0 +1,253 @@
+from playwright.sync_api import sync_playwright
+import re
+import csv
+
+URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
+
+MAX_PAGES = 12
+
+patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
+
+resultados = []
+
+
+def analizar_sesion(page, sesion):
+
+    hora = sesion["hora"]
+    vsessionid = sesion["vsessionid"]
+
+    try:
+
+        seat_url = f"https://kinepolis.es/direct-vista-redirect/{vsessionid}/0/KVAL/0"
+
+        page.goto(seat_url, wait_until="domcontentloaded")
+
+        page.wait_for_selector("select", timeout=8000)
+
+        selects = page.locator("select")
+
+        for i in range(selects.count()):
+
+            select = selects.nth(i)
+
+            try:
+
+                opciones = select.locator("option").all_inner_texts()
+
+                if "1" in opciones:
+
+                    select.select_option("1")
+                    break
+
+            except:
+                pass
+
+        botones = page.locator("button")
+
+        for i in range(botones.count()):
+
+            texto = botones.nth(i).inner_text().lower()
+
+            if "continuar" in texto or "continue" in texto:
+
+                botones.nth(i).click()
+                break
+
+        page.wait_for_selector(
+            "label[data-seats-status]",
+            timeout=10000
+        )
+
+        titulo = "Desconocido"
+
+        titulo_element = page.locator("h2.order-title")
+
+        if titulo_element.count() > 0:
+            titulo = titulo_element.first.inner_text().strip()
+
+        ocupadas = page.locator(
+            'label[data-seats-status="1"]'
+        ).count()
+
+        total = page.locator(
+            "label[data-seats-status]"
+        ).count()
+
+        ocupacion = round((ocupadas / total) * 100, 2) if total else 0
+
+        print(
+            titulo,
+            "|",
+            hora,
+            "| ocupadas:",
+            ocupadas,
+            "| ocupación:",
+            ocupacion,
+            "%"
+        )
+
+        return {
+            "pelicula": titulo,
+            "hora": hora,
+            "total": total,
+            "ocupadas": ocupadas,
+            "libres": total - ocupadas,
+            "ocupacion": ocupacion
+        }
+
+    except Exception as e:
+
+        print("Sesión omitida:", hora, "| error:", e)
+
+        return None
+
+
+with sync_playwright() as p:
+
+    browser = p.chromium.launch(
+    
+        channel="chrome",
+        headless=True,
+        args=["--disable-blink-features=AutomationControlled"]
+    )
+
+    context = browser.new_context(
+        viewport={"width": 1920, "height": 1080},
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        locale="es-ES",
+    )
+    context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined})
+        """)
+    # bloquear recursos pesados
+    context.route(
+        "**/*",
+        lambda route: route.abort()
+        if route.request.resource_type in ["image", "stylesheet", "font", "media"]
+        else route.continue_()
+    )
+
+    page = context.new_page()
+
+    print("Abriendo cartelera...")
+
+    page.goto(URL)
+    print("altura pagina:", page.evaluate("document.body.scrollHeight"))
+    print("html contiene sesiones:", "data-vsessionid" in page.content())
+
+    # aceptar cookies si aparecen
+    try:
+        page.locator("button:has-text('Aceptar')").click(timeout=3000)
+    except:
+        pass
+
+    # esperar a que cargue JS
+    page.wait_for_timeout(3000)
+    page.mouse.wheel(0, 3000)
+
+    # esperar a que exista al menos una sesión
+    page.wait_for_selector("[data-vsessionid]", timeout=20000)
+
+    enlaces = page.locator("[data-vsessionid]")
+
+    sesiones = []
+
+    for i in range(enlaces.count()):
+
+        texto = enlaces.nth(i).inner_text().strip()
+
+        if patron_hora.match(texto):
+
+            vsessionid = enlaces.nth(i).get_attribute("data-vsessionid")
+
+            sesiones.append({
+                "hora": texto,
+                "vsessionid": vsessionid
+            })
+
+    print("Sesiones encontradas:", len(sesiones))
+
+    # procesar sesiones en lotes
+    for i in range(0, len(sesiones), MAX_PAGES):
+
+        lote = sesiones[i:i + MAX_PAGES]
+
+        pages = [context.new_page() for _ in lote]
+
+        for page_instance, sesion in zip(pages, lote):
+
+            r = analizar_sesion(page_instance, sesion)
+
+            if r:
+                resultados.append(r)
+
+        for page_instance in pages:
+            page_instance.close()
+
+    browser.close()
+
+
+# ======================
+# RESUMEN POR HORA
+# ======================
+
+resumen_horas = {}
+
+for r in resultados:
+
+    hora = r["hora"]
+
+    if hora not in resumen_horas:
+
+        resumen_horas[hora] = {
+            "total": 0,
+            "ocupadas": 0
+        }
+
+    resumen_horas[hora]["total"] += r["total"]
+    resumen_horas[hora]["ocupadas"] += r["ocupadas"]
+
+print("\nOCUPACIÓN TOTAL POR HORA\n")
+
+for hora, datos in sorted(resumen_horas.items()):
+
+    ocupacion = round(datos["ocupadas"] / datos["total"] * 100, 2)
+
+    print(
+        hora,
+        "| ocupadas:",
+        datos["ocupadas"],
+        "| ocupación:",
+        ocupacion,
+        "%"
+    )
+
+
+# ======================
+# CSV
+# ======================
+
+with open(
+    "ocupacion_kinepolis.csv",
+    "w",
+    newline="",
+    encoding="utf-8"
+) as f:
+
+    writer = csv.DictWriter(
+        f,
+        fieldnames=[
+            "pelicula",
+            "hora",
+            "total",
+            "ocupadas",
+            "libres",
+            "ocupacion"
+        ]
+    )
+
+    writer.writeheader()
+
+    writer.writerows(resultados)
+
+print("\nDatos guardados en ocupacion_kinepolis.csv")
