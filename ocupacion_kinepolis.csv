@@ -1,35 +1,36 @@
 pelicula,hora,total,ocupadas,libres,ocupacion
-Torrente Presidente,18:30,397,161,236,40.55
-Torrente Presidente,18:00,400,160,240,40.0
-Torrente Presidente,20:30,400,43,357,10.75
-Torrente Presidente,17:00,414,246,168,59.42
-Torrente Presidente,20:00,414,29,385,7.0
-Torrente Presidente,19:00,689,132,557,19.16
-Torrente Presidente,19:30,707,12,695,1.7
-Torrente Presidente,16:30,318,126,192,39.62
-Hoppers,16:30,160,28,132,17.5
-Hoppers,19:15,410,0,410,0.0
-Hoppers,16:30,315,87,228,27.62
-Hoppers,17:00,210,88,122,41.9
-Cumbres Borrascosas,19:15,318,11,307,3.46
-Cumbres Borrascosas,20:00,318,0,318,0.0
-Scream 7,18:00,320,22,298,6.88
-Scream 7,20:30,320,1,319,0.31
+Torrente Presidente,18:30,397,175,222,44.08
+Torrente Presidente,18:00,400,159,241,39.75
+Torrente Presidente,20:30,400,44,356,11.0
+Torrente Presidente,17:00,414,269,145,64.98
+Torrente Presidente,20:00,414,30,384,7.25
+Torrente Presidente,19:00,689,141,548,20.46
+Torrente Presidente,19:30,707,13,694,1.84
+Torrente Presidente,16:30,318,136,182,42.77
+Torrente Presidente,17:30,318,176,142,55.35
+Hoppers,16:30,160,29,131,18.12
+Hoppers,19:15,410,1,409,0.24
+Hoppers,16:30,315,88,227,27.94
+Hoppers,17:00,210,98,112,46.67
+Cumbres Borrascosas,19:15,318,9,309,2.83
+Cumbres Borrascosas,20:00,318,1,317,0.31
+Scream 7,18:00,320,23,297,7.19
+Scream 7,20:30,320,2,318,0.62
 VOSE El Caballero Oscuro,16:30,342,37,305,10.82
-VOSE El Caballero Oscuro: La Leyenda Renace,19:45,342,1,341,0.29
-Hamnet,19:15,318,8,310,2.52
-Marty Supreme,20:00,318,4,314,1.26
-VOSE Los Pecadores,19:30,214,6,208,2.8
-El Testamento de Ann Lee,20:15,207,0,207,0.0
-El Testamento de Ann Lee,19:00,217,2,215,0.92
-Como Cabras,18:10,207,4,203,1.93
-Greenland 2,18:15,207,18,189,8.7
-Greenland 2,20:30,207,0,207,0.0
-¡La Novia!,19:00,217,6,211,2.76
-¡La Novia!,20:15,210,0,210,0.0
-La Asistenta,19:00,332,6,326,1.81
-Avatar: fuego y ceniza,18:45,160,31,129,19.38
-Avatar: fuego y ceniza,19:00,396,0,396,0.0
-Ruta de Escape,19:30,329,2,327,0.61
-Parecido a un asesinato,20:00,315,0,315,0.0
-La buena letra,19:15,210,0,210,0.0
+VOSE El Caballero Oscuro: La Leyenda Renace,19:45,342,2,340,0.58
+Hamnet,19:15,318,9,309,2.83
+Marty Supreme,20:00,318,5,313,1.57
+VOSE Los Pecadores,19:30,214,7,207,3.27
+El Testamento de Ann Lee,20:15,207,1,206,0.48
+El Testamento de Ann Lee,19:00,217,3,214,1.38
+Como Cabras,18:10,207,6,201,2.9
+Greenland 2,18:15,207,17,190,8.21
+Greenland 2,20:30,207,1,206,0.48
+¡La Novia!,19:00,217,7,210,3.23
+¡La Novia!,20:15,210,1,209,0.48
+La Asistenta,19:00,332,7,325,2.11
+Avatar: fuego y ceniza,18:45,160,34,126,21.25
+Avatar: fuego y ceniza,19:00,396,1,395,0.25
+Ruta de Escape,19:30,329,3,326,0.91
+Parecido a un asesinato,20:00,315,1,314,0.32
+La buena letra,19:15,210,1,209,0.48
