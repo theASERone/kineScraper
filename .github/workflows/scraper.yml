@@ -3,7 +3,7 @@ name: Ejecutar scraper Kinepolis
 on:
   schedule:
     - cron: "*/30 * * * *"   # cada 30 minutos
-  workflow_dispatch:        # permite ejecutarlo manualmente
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -22,11 +22,14 @@ jobs:
       - name: Instalar dependencias
         run: |
           pip install -r requirements.txt
-          playwright install chromium
+
+      - name: Instalar Playwright + dependencias del sistema
+        run: |
+          playwright install --with-deps chromium
 
       - name: Ejecutar scraper
         run: |
-          python scraper.py
+          python kinepolis_agent_v2.py
 
       - name: Commit y push de datos
         run: |
