@@ -1,8 +1,11 @@
 name: Ejecutar scraper Kinepolis
 
+permissions:
+  contents: write
+
 on:
   schedule:
-    - cron: "*/30 * * * *"   # cada 30 minutos
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -23,11 +26,10 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Instalar Playwright + dependencias del sistema
-        run: |        
-            pip install playwright
-            python -m playwright install --with-deps chromium
-          
+      - name: Instalar Playwright
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
 
       - name: Ejecutar scraper
         run: |
