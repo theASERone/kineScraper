@@ -1,36 +1,29 @@
 pelicula,hora,total,ocupadas,libres,ocupacion
-Torrente Presidente,18:30,397,175,222,44.08
-Torrente Presidente,18:00,400,159,241,39.75
-Torrente Presidente,20:30,400,44,356,11.0
-Torrente Presidente,17:00,414,269,145,64.98
-Torrente Presidente,20:00,414,30,384,7.25
-Torrente Presidente,19:00,689,141,548,20.46
-Torrente Presidente,19:30,707,13,694,1.84
-Torrente Presidente,16:30,318,136,182,42.77
-Torrente Presidente,17:30,318,176,142,55.35
-Hoppers,16:30,160,29,131,18.12
-Hoppers,19:15,410,1,409,0.24
-Hoppers,16:30,315,88,227,27.94
-Hoppers,17:00,210,98,112,46.67
-Cumbres Borrascosas,19:15,318,9,309,2.83
+Torrente Presidente,18:30,397,210,187,52.9
+Torrente Presidente,18:00,400,225,175,56.25
+Torrente Presidente,20:30,400,54,346,13.5
+Torrente Presidente,20:00,414,38,376,9.18
+Torrente Presidente,19:00,689,153,536,22.21
+Torrente Presidente,19:30,707,24,683,3.39
+Torrente Presidente,17:30,318,213,105,66.98
+Hoppers,19:15,410,14,396,3.41
+Cumbres Borrascosas,19:15,318,12,306,3.77
 Cumbres Borrascosas,20:00,318,1,317,0.31
-Scream 7,18:00,320,23,297,7.19
-Scream 7,20:30,320,2,318,0.62
-VOSE El Caballero Oscuro,16:30,342,37,305,10.82
+Scream 7,18:00,320,32,288,10.0
+Scream 7,20:30,320,3,317,0.94
 VOSE El Caballero Oscuro: La Leyenda Renace,19:45,342,2,340,0.58
-Hamnet,19:15,318,9,309,2.83
 Marty Supreme,20:00,318,5,313,1.57
-VOSE Los Pecadores,19:30,214,7,207,3.27
+VOSE Los Pecadores,19:30,214,10,204,4.67
 El Testamento de Ann Lee,20:15,207,1,206,0.48
 El Testamento de Ann Lee,19:00,217,3,214,1.38
 Como Cabras,18:10,207,6,201,2.9
 Greenland 2,18:15,207,17,190,8.21
 Greenland 2,20:30,207,1,206,0.48
-¡La Novia!,19:00,217,7,210,3.23
+¡La Novia!,19:00,217,12,205,5.53
 ¡La Novia!,20:15,210,1,209,0.48
-La Asistenta,19:00,332,7,325,2.11
-Avatar: fuego y ceniza,18:45,160,34,126,21.25
-Avatar: fuego y ceniza,19:00,396,1,395,0.25
+La Asistenta,19:00,332,13,319,3.92
+Avatar: fuego y ceniza,18:45,160,39,121,24.38
+Avatar: fuego y ceniza,19:00,396,9,387,2.27
 Ruta de Escape,19:30,329,3,326,0.91
 Parecido a un asesinato,20:00,315,1,314,0.32
 La buena letra,19:15,210,1,209,0.48
