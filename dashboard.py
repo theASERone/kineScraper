@@ -1,65 +1,42 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import json
+from streamlit_autorefresh import st_autorefresh
 
-with open("metadata.json") as f:
+# refrescar cada 10 segundos
+st_autorefresh(interval=10000, key="datarefresh")
+
+st.title("🎬 Ocupación Kinepolis")
+
+# ======================
+# METADATA
+# ======================
+
+with open("metadata.json", "r", encoding="utf-8") as f:
     metadata = json.load(f)
 
-st.set_page_config(
-    page_title="Ocupación Kinepolis",
-    layout="wide"
-)
-
-st.markdown(
-        f"""
-    **🕒 Informe generado:** {metadata['generated_at']}  
-    **⏱️ Duración del scraping:** {metadata['scrape_duration_seconds']} segundos
-    """
-    )
-
-st.title("🎬 Ocupación de salas - Kinepolis")
-
-df = pd.read_csv("ocupacion_kinepolis.csv")
-
-# =========================
-# Métricas rápidas
-# =========================
+st.subheader("Último scrape")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric(
-    "Sesiones analizadas",
-    len(df)
-)
+col1.metric("Inicio informe", metadata["inicio_informe"])
+col2.metric("Duración (s)", metadata["duracion_segundos"])
+col3.metric("Sesiones analizadas", metadata["sesiones_analizadas"])
 
-col2.metric(
-    "Butacas totales",
-    df["total"].sum()
-)
+# ======================
+# DATOS
+# ======================
 
-col3.metric(
-    "Ocupación media",
-    f"{df['ocupacion'].mean():.1f}%"
-)
+df = pd.read_csv("ocupacion_kinepolis.csv")
 
-# =========================
-# Gráfico de ocupación
-# =========================
-
-fig = px.bar(
-    df,
-    x="hora",
-    y="ocupacion",
-    title="Ocupación por sesión",
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# =========================
-# Tabla interactiva
-# =========================
-
-st.subheader("Datos de sesiones")
+st.subheader("Datos por sesión")
 
 st.dataframe(df)
+
+# ======================
+# GRÁFICO
+# ======================
+
+st.subheader("Ocupación por sesión")
+
+st.bar_chart(df.set_index("hora")["ocupacion"])
