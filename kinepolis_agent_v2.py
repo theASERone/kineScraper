@@ -283,7 +283,7 @@ else:
 df_total.to_csv(
     archivo,
     index=False,
-    encoding="utf-8"
+    encoding="utf-8-sig"
 )    
 
 print("\nDatos guardados en ocupacion_kinepolis.csv")
