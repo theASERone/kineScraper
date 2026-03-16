@@ -7,6 +7,8 @@ from datetime import datetime   # NUEVO
 import pandas as pd
 import os
 
+fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+
 URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
 
 MAX_PAGES = 12
@@ -104,6 +106,7 @@ def analizar_sesion(page, sesion):
         )
 
         return {
+            "fecha": fecha_hoy,
             "pelicula": titulo,
             "hora": hora,
             "total": total,
@@ -269,7 +272,7 @@ if os.path.exists(archivo):
 
     # eliminar duplicados de misma pelicula + hora
     df_total = df_total.drop_duplicates(
-        subset=["pelicula", "hora"],
+        subset=["fecha", "pelicula", "hora"],
         keep="last"
     )
 
