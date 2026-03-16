@@ -40,6 +40,9 @@ inicio_formateado = inicio_madrid.strftime("%d/%m/%Y %H:%M:%S")
 # PREPARAR DATOS
 # ======================
 
+if "fecha" not in df.columns:
+    df["fecha"] = datetime.now().strftime("%Y-%m-%d")
+
 df["fecha_hora"] = df["fecha"] + " " + df["hora"]
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
