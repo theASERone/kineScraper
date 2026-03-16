@@ -3,7 +3,7 @@ import re
 import csv
 import json
 import time                # NUEVO
-from datetime import datetime   # NUEVO
+from datetime import datetime, timedelta   # NUEVO
 import pandas as pd
 import os
 
@@ -270,7 +270,7 @@ if os.path.exists(archivo):
 
     df_total = pd.concat([df_existente, df_nuevo])
 
-    # eliminar duplicados de misma pelicula + hora
+    # eliminar duplicados
     df_total = df_total.drop_duplicates(
         subset=["fecha", "pelicula", "hora"],
         keep="last"
@@ -280,11 +280,27 @@ else:
 
     df_total = df_nuevo
 
+# ======================
+# FILTRAR ÚLTIMOS 15 DÍAS
+# ======================
+
+df_total["fecha"] = pd.to_datetime(df_total["fecha"])
+
+limite = datetime.now() - timedelta(days=15)
+
+df_total = df_total[df_total["fecha"] >= limite]
+
+df_total["fecha"] = df_total["fecha"].dt.strftime("%Y-%m-%d")
+
+# ======================
+# GUARDAR CSV
+# ======================
+
 df_total.to_csv(
     archivo,
     index=False,
     encoding="utf-8-sig"
-)    
+)
 
 print("\nDatos guardados en ocupacion_kinepolis.csv")
 
