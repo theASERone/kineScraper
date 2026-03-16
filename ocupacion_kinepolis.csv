@@ -1,32 +1,23 @@
-pelicula,hora,total,ocupadas,libres,ocupacion
-Torrente Presidente,16:00,397,27,370,6.8
-Torrente Presidente,18:15,397,68,329,17.13
-Torrente Presidente,20:30,397,17,380,4.28
-Torrente Presidente,16:30,414,24,390,5.8
-Torrente Presidente,18:45,414,29,385,7.0
-Torrente Presidente,21:00,414,19,395,4.59
-Hoppers,17:30,160,10,150,6.25
-Hoppers,16:00,400,26,374,6.5
-Cumbres Borrascosas,17:00,318,8,310,2.52
-Cumbres Borrascosas,19:45,318,2,316,0.63
-Scream 7,18:15,400,4,396,1.0
-Scream 7,20:40,400,0,400,0.0
-VOSE Batman Begins,16:30,342,2,340,0.58
-VOSE El Caballero Oscuro,19:30,342,10,332,2.92
-Hamnet,17:00,318,6,312,1.89
-Hamnet,20:00,318,0,318,0.0
-Marty Supreme,16:00,207,0,207,0.0
-Los Pecadores,18:30,210,3,207,1.43
-El Testamento de Ann Lee,18:40,315,0,315,0.0
-El Testamento de Ann Lee,20:50,207,0,207,0.0
-VOSE El Testamento de Ann Lee,16:00,315,0,315,0.0
-Greenland 2,19:00,207,4,203,1.93
-¡La Novia!,16:00,320,0,320,0.0
-¡La Novia!,18:30,320,0,320,0.0
-La Asistenta,18:15,207,0,207,0.0
-Avatar: fuego y ceniza,19:45,160,2,158,1.25
-Ruta de Escape,21:00,320,0,320,0.0
-Parecido a un asesinato,16:00,210,0,210,0.0
-Parecido a un asesinato,21:20,315,0,315,0.0
-La buena letra,16:00,207,0,207,0.0
-La buena letra,21:05,207,0,207,0.0
+﻿pelicula,hora,total,ocupadas,libres,ocupacion,fecha
+Torrente Presidente,18:15,397,115,282,28.97,2026-03-16
+Torrente Presidente,20:30,397,23,374,5.79,2026-03-16
+Torrente Presidente,18:45,414,46,368,11.11,2026-03-16
+Torrente Presidente,21:00,414,28,386,6.76,2026-03-16
+Hoppers,17:30,160,14,146,8.75,2026-03-16
+Cumbres Borrascosas,17:00,318,19,299,5.97,2026-03-16
+Cumbres Borrascosas,19:45,318,2,316,0.63,2026-03-16
+Scream 7,18:15,400,4,396,1.0,2026-03-16
+Scream 7,20:40,400,0,400,0.0,2026-03-16
+VOSE El Caballero Oscuro,19:30,342,12,330,3.51,2026-03-16
+Hamnet,17:00,318,11,307,3.46,2026-03-16
+Hamnet,20:00,318,0,318,0.0,2026-03-16
+Los Pecadores,18:30,210,3,207,1.43,2026-03-16
+El Testamento de Ann Lee,18:40,315,0,315,0.0,2026-03-16
+El Testamento de Ann Lee,20:50,207,0,207,0.0,2026-03-16
+Greenland 2,19:00,207,6,201,2.9,2026-03-16
+¡La Novia!,18:30,320,1,319,0.31,2026-03-16
+La Asistenta,18:15,207,5,202,2.42,2026-03-16
+Avatar: fuego y ceniza,19:45,160,6,154,3.75,2026-03-16
+Ruta de Escape,21:00,320,0,320,0.0,2026-03-16
+Parecido a un asesinato,21:20,315,0,315,0.0,2026-03-16
+La buena letra,21:05,207,0,207,0.0,2026-03-16
