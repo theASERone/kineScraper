@@ -13,7 +13,7 @@ st.set_page_config(layout="wide")
 
 st_autorefresh(interval=10000, key="datarefresh")
 
-st.title("?? Ocupación Kinepolis")
+st.title("🎬 Ocupación Kinepolis")
 
 # ======================
 # CARGAR DATOS
@@ -50,7 +50,7 @@ df = df.sort_values(["fecha", "hora"])
 # PANEL MÉTRICAS
 # ======================
 
-st.subheader("?? Indicadores")
+st.subheader("📊 Indicadores")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -80,7 +80,7 @@ col5.metric(
 # RANKING SESIONES
 # ======================
 
-st.subheader("?? Sesiones con mayor ocupación")
+st.subheader("🔥 Sesiones con mayor ocupación")
 
 top_sesiones = df.sort_values(
     "ocupacion_pct",
@@ -104,7 +104,7 @@ st.dataframe(
 # DEMANDA POR HORA
 # ======================
 
-st.subheader("?? Demanda por horario")
+st.subheader("📈 Demanda por horario")
 
 demanda = df.groupby("hora")["ocupadas"].sum().reset_index()
 
@@ -116,7 +116,7 @@ st.bar_chart(
 # HEATMAP PELÍCULA / HORA
 # ======================
 
-st.subheader("?? Ocupación por película y horario")
+st.subheader("🎬 Ocupación por película y horario")
 
 pivot = df.pivot_table(
     index="pelicula",
@@ -133,7 +133,7 @@ st.dataframe(
 # EVOLUCIÓN OCUPACIÓN
 # ======================
 
-st.subheader("?? Evolución de ocupación")
+st.subheader("📊 Evolución de ocupación")
 
 evolucion = df.groupby("fecha_hora")["ocupadas"].sum()
 
@@ -143,6 +143,6 @@ st.line_chart(evolucion)
 # TABLA COMPLETA
 # ======================
 
-st.subheader("?? Datos completos")
+st.subheader("📋 Datos completos")
 
 st.dataframe(df)
