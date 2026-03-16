@@ -4,6 +4,8 @@ import csv
 import json
 import time                # NUEVO
 from datetime import datetime   # NUEVO
+import pandas as pd
+import os
 
 URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
 
@@ -234,27 +236,52 @@ for hora, datos in sorted(resumen_horas.items()):
 # CSV
 # ======================
 
-with open(
-    "ocupacion_kinepolis.csv",
-    "w",
-    newline="",
-    encoding="utf-8"
-) as f:
+# with open(
+    # "ocupacion_kinepolis.csv",
+    # "w",
+    # newline="",
+    # encoding="utf-8"
+# ) as f:
 
-    writer = csv.DictWriter(
-        f,
-        fieldnames=[
-            "pelicula",
-            "hora",
-            "total",
-            "ocupadas",
-            "libres",
-            "ocupacion"
-        ]
+    # writer = csv.DictWriter(
+        # f,
+        # fieldnames=[
+            # "pelicula",
+            # "hora",
+            # "total",
+            # "ocupadas",
+            # "libres",
+            # "ocupacion"
+        # ]
+    # )
+
+    # writer.writeheader()
+    # writer.writerows(resultados)
+archivo = "ocupacion_kinepolis.csv"
+
+df_nuevo = pd.DataFrame(resultados)
+
+if os.path.exists(archivo):
+
+    df_existente = pd.read_csv(archivo)
+
+    df_total = pd.concat([df_existente, df_nuevo])
+
+    # eliminar duplicados de misma pelicula + hora
+    df_total = df_total.drop_duplicates(
+        subset=["pelicula", "hora"],
+        keep="last"
     )
 
-    writer.writeheader()
-    writer.writerows(resultados)
+else:
+
+    df_total = df_nuevo
+
+df_total.to_csv(
+    archivo,
+    index=False,
+    encoding="utf-8"
+)    
 
 print("\nDatos guardados en ocupacion_kinepolis.csv")
 
