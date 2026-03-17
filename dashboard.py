@@ -49,6 +49,23 @@ df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
 
 df = df.sort_values(["fecha", "hora"])
 
+fechas_disponibles = sorted(df["fecha"].dropna().unique())
+hoy = datetime.now().strftime("%Y-%m-%d")
+
+if hoy in fechas_disponibles:
+    fecha_por_defecto = hoy
+else:
+    fecha_por_defecto = fechas_disponibles[-1]
+
+fecha_seleccionada = st.selectbox(
+    "📅 Selecciona el día",
+    options=list(reversed(fechas_disponibles)),
+    index=list(reversed(fechas_disponibles)).index(fecha_por_defecto),
+    help="Por defecto se muestra el día de hoy, pero puedes consultar días anteriores."
+)
+
+df_filtrado = df[df["fecha"] == fecha_seleccionada].copy()
+
 # ======================
 # PANEL MÉTRICAS
 # ======================
@@ -66,17 +83,17 @@ col2.metric(
 
 col3.metric(
     "Películas",
-    df["pelicula"].nunique()
+    df_filtrado["pelicula"].nunique()
 )
 
 col4.metric(
     "Sesiones",
-    len(df)
+    len(df_filtrado)
 )
 
 col5.metric(
     "Butacas ocupadas",
-    int(df["ocupadas"].sum())
+    int(df_filtrado["ocupadas"].sum())
 )
 
 # ======================
@@ -85,7 +102,7 @@ col5.metric(
 
 st.subheader("🔥 Sesiones con mayor ocupación")
 
-top_sesiones = df.sort_values(
+top_sesiones = df_filtrado.sort_values(
     "ocupacion_pct",
     ascending=False
 ).head(10)
@@ -109,7 +126,7 @@ st.dataframe(
 
 st.subheader("📈 Demanda por horario")
 
-demanda = df.groupby("hora")["ocupadas"].sum().reset_index()
+demanda = df_filtrado.groupby("hora")["ocupadas"].sum().reset_index()
 
 st.bar_chart(
     demanda.set_index("hora")
@@ -121,7 +138,7 @@ st.bar_chart(
 
 st.subheader("🎬 Ocupación por película y horario")
 
-pivot = df.pivot_table(
+pivot = df_filtrado.pivot_table(
     index="pelicula",
     columns="hora",
     values="ocupacion_pct",
@@ -138,7 +155,7 @@ st.dataframe(
 
 st.subheader("📊 Evolución de ocupación")
 
-evolucion = df.groupby("fecha_hora")["ocupadas"].sum()
+evolucion = df_filtrado.groupby("hora")["ocupadas"].sum()
 
 st.line_chart(evolucion)
 
@@ -148,4 +165,4 @@ st.line_chart(evolucion)
 
 st.subheader("📋 Datos completos")
 
-st.dataframe(df)
+st.dataframe(df_filtrado)
