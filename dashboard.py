@@ -45,6 +45,11 @@ if "fecha" not in df.columns:
     df["fecha"] = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d")
 
 df["fecha"] = df["fecha"].astype(str)
+if "sala" not in df.columns:
+    df["sala"] = ""
+else:
+    df["sala"] = df["sala"].fillna("").astype(str)
+
 df["fecha_hora"] = df["fecha"] + " " + df["hora"]
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
@@ -123,17 +128,18 @@ top_sesiones = df_filtrado.sort_values(
     ascending=False,
 ).head(10)
 
+columnas_top_sesiones = [
+    "pelicula",
+    "fecha",
+    "hora",
+    "sala",
+    "ocupadas",
+    "total",
+    "ocupacion_pct",
+]
+
 st.dataframe(
-    top_sesiones[
-        [
-            "pelicula",
-            "fecha",
-            "hora",
-            "ocupadas",
-            "total",
-            "ocupacion_pct",
-        ]
-    ]
+    top_sesiones[columnas_top_sesiones]
 )
 
 # ======================
