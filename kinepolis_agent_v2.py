@@ -48,6 +48,42 @@ MESES_ES = {
 
 resultados = []
 
+COLUMNAS_RESULTADO = [
+    "fecha",
+    "pelicula",
+    "hora",
+    "sala",
+    "total",
+    "ocupadas",
+    "libres",
+    "ocupacion",
+]
+
+
+def asegurar_columnas_resultado(df):
+    if df is None:
+        df = pd.DataFrame()
+
+    df = df.copy()
+
+    for columna in COLUMNAS_RESULTADO:
+        if columna not in df.columns:
+            df[columna] = "" if columna in {"fecha", "pelicula", "hora", "sala"} else 0
+
+    return df[COLUMNAS_RESULTADO]
+
+
+def cargar_csv_existente(ruta_csv):
+    if not os.path.exists(ruta_csv) or os.path.getsize(ruta_csv) == 0:
+        return asegurar_columnas_resultado(pd.DataFrame())
+
+    try:
+        df_existente = pd.read_csv(ruta_csv)
+    except pd.errors.EmptyDataError:
+        return asegurar_columnas_resultado(pd.DataFrame())
+
+    return asegurar_columnas_resultado(df_existente)
+
 # ======================
 # TIEMPO DE INICIO
 # ======================
@@ -167,26 +203,6 @@ def extraer_detalles_sesion(page, fecha_referencia):
     sala = extraer_sala_desde_order_list(page)
 
     return fecha_sesion, sala
-
-
-def asegurar_columnas_resultado(df):
-    for columna in COLUMNAS_RESULTADO:
-        if columna not in df.columns:
-            df[columna] = ""
-
-    return df[COLUMNAS_RESULTADO]
-
-
-def cargar_csv_existente(archivo):
-    if not os.path.exists(archivo) or os.path.getsize(archivo) == 0:
-        return pd.DataFrame(columns=COLUMNAS_RESULTADO)
-
-    try:
-        df_existente = pd.read_csv(archivo)
-    except (pd.errors.EmptyDataError, pd.errors.ParserError):
-        return pd.DataFrame(columns=COLUMNAS_RESULTADO)
-
-    return asegurar_columnas_resultado(df_existente)
 
 
 def analizar_sesion(page, sesion):
