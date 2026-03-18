@@ -1,19 +1,49 @@
-from playwright.sync_api import sync_playwright
-import re
-import csv
-import json
-import time                # NUEVO
-from datetime import datetime, timedelta   # NUEVO
-import pandas as pd
 import os
+import json
+import re
+import subprocess
+import time
+from datetime import datetime, timedelta
 
-fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+import pandas as pd
+from playwright.sync_api import sync_playwright
 
 URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
 
 MAX_PAGES = 12
 
 patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
+patron_fecha_iso = re.compile(r"(\d{4}-\d{2}-\d{2})")
+patron_fecha_es = re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")
+patron_sala = re.compile(r"\b(?:sala|screen|auditorium)\s*[:\-]?\s*([A-Za-z0-9]+)\b", re.IGNORECASE)
+
+MESES_ES = {
+    "ene": 1,
+    "enero": 1,
+    "feb": 2,
+    "febrero": 2,
+    "mar": 3,
+    "marzo": 3,
+    "abr": 4,
+    "abril": 4,
+    "may": 5,
+    "mayo": 5,
+    "jun": 6,
+    "junio": 6,
+    "jul": 7,
+    "julio": 7,
+    "ago": 8,
+    "agosto": 8,
+    "sep": 9,
+    "sept": 9,
+    "septiembre": 9,
+    "oct": 10,
+    "octubre": 10,
+    "nov": 11,
+    "noviembre": 11,
+    "dic": 12,
+    "diciembre": 12,
+}
 
 resultados = []
 
@@ -30,10 +60,83 @@ print("Inicio del informe:", hora_inicio.strftime("%Y-%m-%d %H:%M:%S"))
 print("==============================\n")
 
 
+def normalizar_texto(texto):
+    return " ".join(texto.replace("\xa0", " ").split())
+
+
+def extraer_fecha_desde_texto(texto, fecha_referencia):
+    texto_normalizado = normalizar_texto(texto)
+
+    match_iso = patron_fecha_iso.search(texto_normalizado)
+
+    if match_iso:
+        return match_iso.group(1)
+
+    match_es = patron_fecha_es.search(texto_normalizado)
+
+    if match_es:
+        dia, mes, anio = match_es.groups()
+        anio = int(anio)
+        if anio < 100:
+            anio += 2000
+        return datetime(anio, int(mes), int(dia)).strftime("%Y-%m-%d")
+
+    texto_limpio = re.sub(r"[.,]", " ", texto_normalizado.lower())
+    tokens = texto_limpio.split()
+
+    for i, token in enumerate(tokens[:-1]):
+        if not token.isdigit():
+            continue
+
+        mes = MESES_ES.get(tokens[i + 1])
+
+        if not mes:
+            continue
+
+        dia = int(token)
+        anio = fecha_referencia.year
+
+        if i + 2 < len(tokens) and tokens[i + 2].isdigit() and len(tokens[i + 2]) == 4:
+            anio = int(tokens[i + 2])
+
+        fecha = datetime(anio, mes, dia)
+
+        if abs((fecha - fecha_referencia).days) > 330:
+            fecha = datetime(anio + 1, mes, dia)
+
+        return fecha.strftime("%Y-%m-%d")
+
+    return fecha_referencia.strftime("%Y-%m-%d")
+
+
+def extraer_sala_desde_texto(texto):
+    texto_normalizado = normalizar_texto(texto)
+    match_sala = patron_sala.search(texto_normalizado)
+
+    if match_sala:
+        return match_sala.group(1).upper()
+
+    return ""
+
+
+def extraer_detalles_sesion(page, fecha_referencia):
+    info_element = page.locator("div.order-additional-info")
+
+    if info_element.count() == 0:
+        return fecha_referencia.strftime("%Y-%m-%d"), ""
+
+    texto_info = info_element.first.inner_text().strip()
+    fecha_sesion = extraer_fecha_desde_texto(texto_info, fecha_referencia)
+    sala = extraer_sala_desde_texto(texto_info)
+
+    return fecha_sesion, sala
+
+
 def analizar_sesion(page, sesion):
 
     hora = sesion["hora"]
     vsessionid = sesion["vsessionid"]
+    fecha_referencia = sesion["fecha_referencia"]
 
     try:
 
@@ -84,6 +187,8 @@ def analizar_sesion(page, sesion):
         if titulo_element.count() > 0:
             titulo = titulo_element.first.inner_text().strip()
 
+        fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
+
         ocupadas = page.locator(
             'label[data-seats-status="1"]'
         ).count()
@@ -93,22 +198,27 @@ def analizar_sesion(page, sesion):
         ).count()
 
         ocupacion = round((ocupadas / total) * 100, 2) if total else 0
-
+        
         print(
             titulo,
             "|",
+            fecha_sesion,
+            "|",
             hora,
+            "| sala:",
+            sala or "N/D",
+            "|",
             "| ocupadas:",
             ocupadas,
             "| ocupación:",
             ocupacion,
             "%"
         )
-
         return {
-            "fecha": fecha_hoy,
+            "fecha": fecha_sesion,
             "pelicula": titulo,
             "hora": hora,
+            "sala": sala,
             "total": total,
             "ocupadas": ocupadas,
             "libres": total - ocupadas,
@@ -178,7 +288,8 @@ with sync_playwright() as p:
 
             sesiones.append({
                 "hora": texto,
-                "vsessionid": vsessionid
+                "vsessionid": vsessionid,
+                "fecha_referencia": hora_inicio,
             })
 
     print("Sesiones encontradas:", len(sesiones))
@@ -271,8 +382,14 @@ if os.path.exists(archivo):
     df_total = pd.concat([df_existente, df_nuevo])
 
     # eliminar duplicados
+    columnas_deduplicacion = ["fecha", "pelicula", "hora"]
+
+    if "sala" in df_total.columns:
+        df_total["sala"] = df_total["sala"].fillna("").astype(str)
+        columnas_deduplicacion.append("sala")
+
     df_total = df_total.drop_duplicates(
-        subset=["fecha", "pelicula", "hora"],
+        subset=columnas_deduplicacion,
         keep="last"
     )
 
@@ -339,8 +456,6 @@ with open("metadata.json", "w", encoding="utf-8") as f:
     json.dump(metadata, f, indent=4, ensure_ascii=False)
 
 print("\nMetadata guardada en metadata.json")
-
-import subprocess
 
 def subir_a_github():
 
