@@ -169,6 +169,26 @@ def extraer_detalles_sesion(page, fecha_referencia):
     return fecha_sesion, sala
 
 
+def asegurar_columnas_resultado(df):
+    for columna in COLUMNAS_RESULTADO:
+        if columna not in df.columns:
+            df[columna] = ""
+
+    return df[COLUMNAS_RESULTADO]
+
+
+def cargar_csv_existente(archivo):
+    if not os.path.exists(archivo) or os.path.getsize(archivo) == 0:
+        return pd.DataFrame(columns=COLUMNAS_RESULTADO)
+
+    try:
+        df_existente = pd.read_csv(archivo)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return pd.DataFrame(columns=COLUMNAS_RESULTADO)
+
+    return asegurar_columnas_resultado(df_existente)
+
+
 def analizar_sesion(page, sesion):
 
     hora = sesion["hora"]
