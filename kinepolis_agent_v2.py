@@ -16,6 +16,7 @@ patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
 patron_fecha_iso = re.compile(r"(\d{4}-\d{2}-\d{2})")
 patron_fecha_es = re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")
 patron_sala = re.compile(r"\b(?:sala|screen|auditorium)\s*[:\-]?\s*([A-Za-z0-9]+)\b", re.IGNORECASE)
+patron_codigo_sala = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?$")
 
 MESES_ES = {
     "ene": 1,
@@ -119,15 +120,51 @@ def extraer_sala_desde_texto(texto):
     return ""
 
 
+def extraer_sala_desde_order_list(page):
+    items = page.locator("div.order-list-item")
+
+    for i in range(items.count()):
+        item = items.nth(i)
+        texto_item = normalizar_texto(item.inner_text())
+
+        if "sala" not in texto_item.lower():
+            continue
+
+        valores = item.locator("div.order-list-item-value")
+
+        for j in range(valores.count()):
+            valor = normalizar_texto(valores.nth(j).inner_text())
+
+            if not valor:
+                continue
+
+            sala = extraer_sala_desde_texto(valor)
+
+            if sala:
+                return sala
+
+            valor_limpio = valor.replace(" ", "")
+
+            if patron_codigo_sala.fullmatch(valor_limpio):
+                return valor_limpio.upper()
+
+        sala = extraer_sala_desde_texto(texto_item)
+
+        if sala:
+            return sala
+
+    return ""
+
+
 def extraer_detalles_sesion(page, fecha_referencia):
     info_element = page.locator("div.order-additional-info")
 
     if info_element.count() == 0:
-        return fecha_referencia.strftime("%Y-%m-%d"), ""
+        return fecha_referencia.strftime("%Y-%m-%d"), extraer_sala_desde_order_list(page)
 
     texto_info = info_element.first.inner_text().strip()
     fecha_sesion = extraer_fecha_desde_texto(texto_info, fecha_referencia)
-    sala = extraer_sala_desde_texto(texto_info)
+    sala = extraer_sala_desde_order_list(page)
 
     return fecha_sesion, sala
 
