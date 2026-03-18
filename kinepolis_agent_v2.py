@@ -410,41 +410,39 @@ for hora, datos in sorted(resumen_horas.items()):
     # writer.writerows(resultados)
 archivo = "ocupacion_kinepolis.csv"
 
-df_nuevo = pd.DataFrame(resultados)
+df_nuevo = asegurar_columnas_resultado(pd.DataFrame(resultados))
 
-if os.path.exists(archivo):
+df_existente = cargar_csv_existente(archivo)
 
-    df_existente = pd.read_csv(archivo)
+df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
 
-    df_total = pd.concat([df_existente, df_nuevo])
+columnas_deduplicacion = ["fecha", "pelicula", "hora"]
 
-    # eliminar duplicados
-    columnas_deduplicacion = ["fecha", "pelicula", "hora"]
+if "sala" in df_total.columns:
+    df_total["sala"] = df_total["sala"].fillna("").astype(str)
+    columnas_deduplicacion.append("sala")
 
-    if "sala" in df_total.columns:
-        df_total["sala"] = df_total["sala"].fillna("").astype(str)
-        columnas_deduplicacion.append("sala")
-
-    df_total = df_total.drop_duplicates(
-        subset=columnas_deduplicacion,
-        keep="last"
-    )
-
-else:
-
-    df_total = df_nuevo
+df_total = df_total.drop_duplicates(
+    subset=columnas_deduplicacion,
+    keep="last"
+)
 
 # ======================
 # FILTRAR ÚLTIMOS 15 DÍAS
 # ======================
 
-df_total["fecha"] = pd.to_datetime(df_total["fecha"])
+if not df_total.empty:
 
-limite = datetime.now() - timedelta(days=15)
+    df_total["fecha"] = pd.to_datetime(df_total["fecha"], errors="coerce")
 
-df_total = df_total[df_total["fecha"] >= limite]
+    limite = datetime.now() - timedelta(days=15)
 
-df_total["fecha"] = df_total["fecha"].dt.strftime("%Y-%m-%d")
+    df_total = df_total[df_total["fecha"].notna()]
+    df_total = df_total[df_total["fecha"] >= limite]
+
+    df_total["fecha"] = df_total["fecha"].dt.strftime("%Y-%m-%d")
+
+df_total = asegurar_columnas_resultado(df_total)
 
 # ======================
 # GUARDAR CSV
