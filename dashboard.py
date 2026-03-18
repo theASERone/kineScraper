@@ -1,9 +1,10 @@
-import streamlit as st
-import pandas as pd
 import json
-from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import pandas as pd
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 # ======================
 # CONFIGURACIÓN
@@ -41,30 +42,45 @@ inicio_formateado = inicio_madrid.strftime("%d/%m/%Y %H:%M:%S")
 # ======================
 
 if "fecha" not in df.columns:
-    df["fecha"] = datetime.now().strftime("%Y-%m-%d")
+    df["fecha"] = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d")
 
+df["fecha"] = df["fecha"].astype(str)
 df["fecha_hora"] = df["fecha"] + " " + df["hora"]
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
 
 df = df.sort_values(["fecha", "hora"])
 
-fechas_disponibles = sorted(df["fecha"].dropna().unique())
-hoy = datetime.now().strftime("%Y-%m-%d")
+hoy_madrid = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d")
+fechas_disponibles = sorted(df["fecha"].dropna().unique(), reverse=True)
 
-if hoy in fechas_disponibles:
-    fecha_por_defecto = hoy
-else:
-    fecha_por_defecto = fechas_disponibles[-1]
+opciones_fecha = [hoy_madrid] + [f for f in fechas_disponibles if f != hoy_madrid]
+
+
+def formatear_fecha(fecha_iso: str) -> str:
+    fecha_dt = datetime.strptime(fecha_iso, "%Y-%m-%d")
+    if fecha_iso == hoy_madrid:
+        return f"{fecha_dt.strftime('%d/%m/%Y')} (hoy)"
+    return fecha_dt.strftime("%d/%m/%Y")
+
 
 fecha_seleccionada = st.selectbox(
     "📅 Selecciona el día",
-    options=list(reversed(fechas_disponibles)),
-    index=list(reversed(fechas_disponibles)).index(fecha_por_defecto),
-    help="Por defecto se muestra el día de hoy, pero puedes consultar días anteriores."
+    options=opciones_fecha,
+    index=0,
+    format_func=formatear_fecha,
+    help="Por defecto se muestra hoy en horario de Madrid, pero puedes consultar días anteriores.",
 )
 
 df_filtrado = df[df["fecha"] == fecha_seleccionada].copy()
+
+if df_filtrado.empty:
+    st.warning(
+        f"No hay datos guardados para {formatear_fecha(fecha_seleccionada)}. "
+        "Selecciona un día anterior para ver sesiones históricas."
+    )
+
+st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madrid)")
 
 # ======================
 # PANEL MÉTRICAS
@@ -78,22 +94,22 @@ col1.metric("Inicio informe", inicio_formateado)
 
 col2.metric(
     "Duración scrape (s)",
-    metadata["duracion_segundos"]
+    metadata["duracion_segundos"],
 )
 
 col3.metric(
     "Películas",
-    df_filtrado["pelicula"].nunique()
+    df_filtrado["pelicula"].nunique(),
 )
 
 col4.metric(
     "Sesiones",
-    len(df_filtrado)
+    len(df_filtrado),
 )
 
 col5.metric(
     "Butacas ocupadas",
-    int(df_filtrado["ocupadas"].sum())
+    int(df_filtrado["ocupadas"].sum()),
 )
 
 # ======================
@@ -104,7 +120,7 @@ st.subheader("🔥 Sesiones con mayor ocupación")
 
 top_sesiones = df_filtrado.sort_values(
     "ocupacion_pct",
-    ascending=False
+    ascending=False,
 ).head(10)
 
 st.dataframe(
@@ -115,7 +131,7 @@ st.dataframe(
             "hora",
             "ocupadas",
             "total",
-            "ocupacion_pct"
+            "ocupacion_pct",
         ]
     ]
 )
@@ -142,7 +158,7 @@ pivot = df_filtrado.pivot_table(
     index="pelicula",
     columns="hora",
     values="ocupacion_pct",
-    aggfunc="mean"
+    aggfunc="mean",
 )
 
 st.dataframe(
