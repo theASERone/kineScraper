@@ -20,14 +20,17 @@ st.title("🎬 Ocupación Kinepolis")
 # CARGAR DATOS
 # ======================
 
+
 df = pd.read_csv("ocupacion_kinepolis.csv")
 
 with open("metadata.json", "r", encoding="utf-8") as f:
     metadata = json.load(f)
 
+
 # ======================
 # FORMATEAR HORA MADRID
 # ======================
+
 
 def formatear_timestamp_metadata(timestamp: str) -> str:
     instante = datetime.fromisoformat(timestamp)
@@ -56,16 +59,31 @@ else:
 columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
 df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
 
-df["fecha_hora"] = df["fecha"] + " " + df["hora"]
+df["fecha_hora_original"] = pd.to_datetime(
+    df["fecha"] + " " + df["hora"],
+    errors="coerce",
+)
+df["fecha_hora_dashboard"] = df["fecha_hora_original"] + pd.Timedelta(hours=1)
+
+df["fecha_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%Y-%m-%d")
+df["hora_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%H:%M")
+
+df.loc[df["fecha_hora_dashboard"].isna(), "fecha_dashboard"] = df.loc[
+    df["fecha_hora_dashboard"].isna(), "fecha"
+]
+df.loc[df["fecha_hora_dashboard"].isna(), "hora_dashboard"] = df.loc[
+    df["fecha_hora_dashboard"].isna(), "hora"
+]
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
 
-df = df.sort_values(["fecha", "hora", "pelicula", "sala"])
+df = df.sort_values(["fecha_dashboard", "hora_dashboard", "pelicula", "sala"])
 
 hoy_madrid = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d")
-fechas_disponibles = sorted(df["fecha"].dropna().unique(), reverse=True)
+fechas_disponibles = sorted(df["fecha_dashboard"].dropna().unique(), reverse=True)
 
 opciones_fecha = [hoy_madrid] + [f for f in fechas_disponibles if f != hoy_madrid]
+
 
 
 def formatear_fecha(fecha_iso: str) -> str:
@@ -83,7 +101,7 @@ fecha_seleccionada = st.selectbox(
     help="Por defecto se muestra hoy en horario de Madrid, pero puedes consultar días anteriores.",
 )
 
-df_filtrado = df[df["fecha"] == fecha_seleccionada].copy()
+df_filtrado = df[df["fecha_dashboard"] == fecha_seleccionada].copy()
 
 if df_filtrado.empty:
     st.warning(
@@ -92,6 +110,64 @@ if df_filtrado.empty:
     )
 
 st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madrid)")
+
+# ======================
+# DEMANDA POR HORA
+# ======================
+
+st.subheader("📈 Demanda por horario")
+
+demanda = df_filtrado.groupby("hora_dashboard")["ocupadas"].sum().sort_index().reset_index()
+
+st.bar_chart(
+    demanda.set_index("hora_dashboard")
+)
+
+# ======================
+# TOP SESIONES
+# ======================
+
+st.subheader("🔥 Sesiones con mayor ocupación")
+
+top_sesiones = (
+    df_filtrado.sort_values("ocupacion_pct", ascending=False)
+    .head(10)
+    .copy()
+)
+top_sesiones["sesion"] = (
+    top_sesiones["pelicula"]
+    + " · "
+    + top_sesiones["hora_dashboard"]
+    + " · Sala "
+    + top_sesiones["sala"].replace("", "s/d")
+)
+
+grafica_top_sesiones = top_sesiones.set_index("sesion")[["ocupacion_pct"]]
+st.bar_chart(grafica_top_sesiones)
+
+# ======================
+# TABLA COMPLETA
+# ======================
+
+st.subheader("📋 Datos completos")
+
+tabla_completa = df_filtrado.assign(
+    fecha=df_filtrado["fecha_dashboard"],
+    hora=df_filtrado["hora_dashboard"],
+)[
+    [
+        "pelicula",
+        "fecha",
+        "hora",
+        "sala",
+        "ocupadas",
+        "total",
+        "libres",
+        "ocupacion_pct",
+    ]
+]
+
+st.dataframe(tabla_completa)
 
 # ======================
 # PANEL MÉTRICAS
@@ -122,75 +198,3 @@ col5.metric(
     "Butacas ocupadas",
     int(df_filtrado["ocupadas"].sum()),
 )
-
-# ======================
-# RANKING SESIONES
-# ======================
-
-st.subheader("🔥 Sesiones con mayor ocupación")
-
-top_sesiones = df_filtrado.sort_values(
-    "ocupacion_pct",
-    ascending=False,
-).head(10)
-
-columnas_top_sesiones = [
-    "pelicula",
-    "fecha",
-    "hora",
-    "sala",
-    "ocupadas",
-    "total",
-    "ocupacion_pct",
-]
-
-st.dataframe(
-    top_sesiones[columnas_top_sesiones]
-)
-
-# ======================
-# DEMANDA POR HORA
-# ======================
-
-st.subheader("📈 Demanda por horario")
-
-demanda = df_filtrado.groupby("hora")["ocupadas"].sum().reset_index()
-
-st.bar_chart(
-    demanda.set_index("hora")
-)
-
-# ======================
-# HEATMAP PELÍCULA / HORA
-# ======================
-
-st.subheader("🎬 Ocupación por película y horario")
-
-pivot = df_filtrado.pivot_table(
-    index="pelicula",
-    columns="hora",
-    values="ocupacion_pct",
-    aggfunc="mean",
-)
-
-st.dataframe(
-    pivot.style.background_gradient(cmap="Reds")
-)
-
-# ======================
-# EVOLUCIÓN OCUPACIÓN
-# ======================
-
-st.subheader("📊 Evolución de ocupación")
-
-evolucion = df_filtrado.groupby("hora")["ocupadas"].sum()
-
-st.line_chart(evolucion)
-
-# ======================
-# TABLA COMPLETA
-# ======================
-
-st.subheader("📋 Datos completos")
-
-st.dataframe(df_filtrado)
