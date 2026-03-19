@@ -129,23 +129,24 @@ st.bar_chart(
 
 st.subheader("🔥 Sesiones con mayor ocupación")
 
-top_sesiones = df_filtrado.sort_values(
-    "ocupacion_pct",
-    ascending=False,
-).head(10)
-
-columnas_top_sesiones = [
-    "pelicula",
-    "fecha",
-    "hora",
-    "sala",
-    "ocupadas",
-    "total",
-    "ocupacion_pct",
-]
+top_sesiones = df_filtrado.assign(
+    fecha=df_filtrado["fecha_dashboard"],
+    hora=df_filtrado["hora_dashboard"],
+).sort_values("ocupacion_pct", ascending=False).head(10)
 
 st.dataframe(
-    top_sesiones[columnas_top_sesiones]
+    top_sesiones[
+        [
+            "pelicula",
+            "fecha",
+            "hora",
+            "sala",
+            "ocupadas",
+            "total",
+            "libres",
+            "ocupacion_pct",
+        ]
+    ]
 )
 
 # ======================
