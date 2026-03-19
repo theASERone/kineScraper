@@ -29,13 +29,16 @@ with open("metadata.json", "r", encoding="utf-8") as f:
 # FORMATEAR HORA MADRID
 # ======================
 
-inicio_utc = datetime.strptime(metadata["inicio_informe"], "%Y-%m-%d %H:%M:%S")
+def formatear_timestamp_metadata(timestamp: str) -> str:
+    instante = datetime.fromisoformat(timestamp)
 
-inicio_madrid = inicio_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(
-    ZoneInfo("Europe/Madrid")
-)
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=ZoneInfo("UTC"))
 
-inicio_formateado = inicio_madrid.strftime("%d/%m/%Y %H:%M:%S")
+    return instante.astimezone(ZoneInfo("Europe/Madrid")).strftime("%d/%m/%Y %H:%M:%S")
+
+
+inicio_formateado = formatear_timestamp_metadata(metadata["inicio_informe"])
 
 # ======================
 # PREPARAR DATOS
@@ -50,11 +53,14 @@ if "sala" not in df.columns:
 else:
     df["sala"] = df["sala"].fillna("").astype(str)
 
+columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
+df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
+
 df["fecha_hora"] = df["fecha"] + " " + df["hora"]
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
 
-df = df.sort_values(["fecha", "hora"])
+df = df.sort_values(["fecha", "hora", "pelicula", "sala"])
 
 hoy_madrid = datetime.now(ZoneInfo("Europe/Madrid")).strftime("%Y-%m-%d")
 fechas_disponibles = sorted(df["fecha"].dropna().unique(), reverse=True)
