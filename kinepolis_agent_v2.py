@@ -4,6 +4,7 @@ import re
 import subprocess
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from playwright.sync_api import sync_playwright
@@ -88,12 +89,16 @@ def cargar_csv_existente(ruta_csv):
 # TIEMPO DE INICIO
 # ======================
 
+MADRID_TZ = ZoneInfo("Europe/Madrid")
+UTC_TZ = ZoneInfo("UTC")
+
 inicio_script = time.time()  # NUEVO
-hora_inicio = datetime.now() # NUEVO
+hora_inicio = datetime.now(UTC_TZ) # NUEVO
+hora_referencia_madrid = hora_inicio.astimezone(MADRID_TZ)
 
 print("\n==============================")
 print("INFORME KINEPOLIS")
-print("Inicio del informe:", hora_inicio.strftime("%Y-%m-%d %H:%M:%S"))
+print("Inicio del informe:", hora_referencia_madrid.strftime("%Y-%m-%d %H:%M:%S"))
 print("==============================\n")
 
 
@@ -318,6 +323,7 @@ with sync_playwright() as p:
         viewport={"width": 1920, "height": 1080},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         locale="es-ES",
+        timezone_id="Europe/Madrid",
     )
     context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {get: () => undefined})
@@ -350,6 +356,7 @@ with sync_playwright() as p:
     enlaces = page.locator("[data-vsessionid]")
 
     sesiones = []
+    sesiones_vistas = set()
 
     for i in range(enlaces.count()):
 
@@ -358,14 +365,20 @@ with sync_playwright() as p:
         if patron_hora.match(texto):
 
             vsessionid = enlaces.nth(i).get_attribute("data-vsessionid")
+            clave_sesion = (vsessionid, texto)
+
+            if not vsessionid or clave_sesion in sesiones_vistas:
+                continue
+
+            sesiones_vistas.add(clave_sesion)
 
             sesiones.append({
                 "hora": texto,
                 "vsessionid": vsessionid,
-                "fecha_referencia": hora_inicio,
+                "fecha_referencia": hora_referencia_madrid,
             })
 
-    print("Sesiones encontradas:", len(sesiones))
+    print("Sesiones únicas encontradas:", len(sesiones))
 
     for i in range(0, len(sesiones), MAX_PAGES):
 
@@ -471,7 +484,7 @@ if not df_total.empty:
 
     df_total["fecha"] = pd.to_datetime(df_total["fecha"], errors="coerce")
 
-    limite = datetime.now() - timedelta(days=15)
+    limite = datetime.now(MADRID_TZ).replace(tzinfo=None) - timedelta(days=15)
 
     df_total = df_total[df_total["fecha"].notna()]
     df_total = df_total[df_total["fecha"] >= limite]
@@ -502,7 +515,7 @@ fin_script = time.time()  # NUEVO
 duracion = round(fin_script - inicio_script, 2)
 
 print("\n==============================")
-print("Informe generado:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+print("Informe generado:", datetime.now(MADRID_TZ).strftime("%Y-%m-%d %H:%M:%S"))
 print("Tiempo total de ejecución:", duracion, "segundos")
 print("==============================")
 
@@ -512,7 +525,7 @@ print("==============================")
 
 fin_script = time.time()
 
-hora_fin = datetime.now()
+hora_fin = datetime.now(UTC_TZ)
 
 duracion = round(fin_script - inicio_script, 2)
 
