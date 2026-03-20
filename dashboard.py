@@ -55,7 +55,7 @@ df["fecha"] = df["fecha"].astype(str)
 if "sala" not in df.columns:
     df["sala"] = ""
 else:
-    df["sala"] = df["sala"].fillna("").astype(int)
+    df["sala"] = df["sala"].fillna("").astype(str)
 
 columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
 df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
