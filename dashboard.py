@@ -44,6 +44,23 @@ def formatear_timestamp_metadata(timestamp: str) -> str:
 
 inicio_formateado = formatear_timestamp_metadata(metadata["inicio_informe"])
 
+
+def formatear_sala(valor: object) -> str:
+    if pd.isna(valor) or valor == "":
+        return ""
+
+    valor_str = str(valor).strip()
+
+    if not valor_str:
+        return ""
+
+    valor_numerico = pd.to_numeric(valor_str, errors="coerce")
+
+    if pd.notna(valor_numerico) and float(valor_numerico).is_integer():
+        return str(int(valor_numerico))
+
+    return valor_str
+
 # ======================
 # PREPARAR DATOS
 # ======================
@@ -55,7 +72,7 @@ df["fecha"] = df["fecha"].astype(str)
 if "sala" not in df.columns:
     df["sala"] = ""
 else:
-    df["sala"] = df["sala"].fillna("").astype(str)
+    df["sala"] = df["sala"].apply(formatear_sala)
 
 columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
 df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
