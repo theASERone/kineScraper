@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
@@ -59,11 +60,10 @@ else:
 columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
 df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
 
-df["fecha_hora_original"] = pd.to_datetime(
+df["fecha_hora_dashboard"] = pd.to_datetime(
     df["fecha"] + " " + df["hora"],
     errors="coerce",
 )
-df["fecha_hora_dashboard"] = df["fecha_hora_original"] + pd.Timedelta(hours=1)
 
 df["fecha_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%Y-%m-%d")
 df["hora_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%H:%M")
@@ -117,11 +117,23 @@ st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madr
 
 st.subheader("📈 Demanda por horario")
 
-demanda = df_filtrado.groupby("hora_dashboard")["ocupadas"].sum().sort_index().reset_index()
+demanda = df_filtrado.groupby("hora_dashboard", as_index=False)["ocupadas"].sum().sort_values("hora_dashboard")
 
-st.bar_chart(
-    demanda.set_index("hora_dashboard")
+fig_demanda = px.bar(
+    demanda,
+    x="hora_dashboard",
+    y="ocupadas",
+    labels={"hora_dashboard": "Hora", "ocupadas": "Butacas ocupadas"},
 )
+fig_demanda.update_layout(
+    xaxis_title="Hora",
+    yaxis_title="Butacas ocupadas",
+    dragmode=False,
+)
+fig_demanda.update_xaxes(fixedrange=True)
+fig_demanda.update_yaxes(fixedrange=True)
+
+st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": False})
 
 # ======================
 # TOP SESIONES
