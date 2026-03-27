@@ -115,6 +115,7 @@ df["rango_horario_dashboard"] = (
 )
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
+df["duracion_minutos"] = pd.to_numeric(df.get("duracion_minutos", 0), errors="coerce").fillna(0)
 
 df = df.sort_values(["fecha_dashboard", "hora_dashboard", "pelicula", "sala"])
 
@@ -156,99 +157,78 @@ st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madr
 
 st.subheader("?? Demanda por horario")
 
-sesiones_con_intervalo = df_filtrado[
-    df_filtrado["fecha_hora_dashboard"].notna() & df_filtrado["fecha_hora_fin_dashboard"].notna()
-].copy()
+modo_duracion = st.selectbox(
+    "Mostrar duración en la gráfica",
+    options=[
+        "Sin duración",
+        "Color por duración media",
+        "Etiqueta con duración media",
+        "Color + etiqueta",
+    ],
+    index=3,
+)
 
-if not sesiones_con_intervalo.empty:
-    sesiones_con_intervalo = sesiones_con_intervalo.sort_values(
-        ["fecha_hora_dashboard", "fecha_hora_fin_dashboard", "ocupadas"],
-        ascending=[True, True, False],
+demanda = (
+    df_filtrado.groupby("hora_dashboard", as_index=False)
+    .agg(
+        ocupadas=("ocupadas", "sum"),
+        sesiones=("pelicula", "count"),
+        duracion_media=("duracion_minutos", "mean"),
+        duracion_max=("duracion_minutos", "max"),
     )
-    sesiones_con_intervalo["sesion_visual"] = (
-        sesiones_con_intervalo["hora_dashboard"]
-        + " | Sala "
-        + sesiones_con_intervalo["sala"].replace("", "N/D")
-        + " | "
-        + sesiones_con_intervalo["pelicula"]
-    )
+    .sort_values("hora_dashboard")
+)
 
-    fig_demanda = px.timeline(
-        sesiones_con_intervalo,
-        x_start="fecha_hora_dashboard",
-        x_end="fecha_hora_fin_dashboard",
-        y="sesion_visual",
-        color="ocupadas",
-        text="hora_dashboard",
-        hover_data={
-            "pelicula": True,
-            "sala": True,
-            "hora_dashboard": True,
-            "hora_fin_dashboard": True,
-            "ocupadas": True,
-            "total": True,
-            "ocupacion_pct": ":.1f",
-            "fecha_hora_dashboard": False,
-            "fecha_hora_fin_dashboard": False,
-            "sesion_visual": False,
-        },
-        labels={
-            "sesion_visual": "Sesion",
-            "ocupadas": "Butacas ocupadas",
-            "hora_dashboard": "Hora inicio",
-            "hora_fin_dashboard": "Hora fin",
-            "ocupacion_pct": "Ocupacion (%)",
-        },
-        color_continuous_scale="Reds",
-    )
-    fig_demanda.update_traces(
-        textposition="inside",
-        insidetextanchor="start",
-        textfont_size=12,
-    )
-    fig_demanda.update_layout(
-        xaxis_title="Horario",
-        yaxis_title="Sesion",
-        dragmode=False,
-        coloraxis_colorbar_title="Ocupadas",
-        margin=dict(l=20, r=20, t=10, b=20),
-    )
-    fig_demanda.update_xaxes(
-        tickformat="%H:%M",
-        fixedrange=True,
-    )
-    fig_demanda.update_yaxes(
-        autorange="reversed",
-        fixedrange=True,
-    )
+demanda["duracion_media"] = demanda["duracion_media"].fillna(0)
+demanda["duracion_media_label"] = demanda["duracion_media"].round().astype(int).astype(str) + " min"
+demanda.loc[demanda["duracion_media"] <= 0, "duracion_media_label"] = ""
 
-    st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": False})
-else:
-    st.info(
-        "La vista por intervalo necesita hora de fin por sesion. En los datos actuales aun no hay horas de fin, asi que no puedo dibujar la longitud real de cada barra."
-    )
+bar_kwargs = {
+    "data_frame": demanda,
+    "x": "hora_dashboard",
+    "y": "ocupadas",
+    "custom_data": ["sesiones", "duracion_media", "duracion_max"],
+    "labels": {
+        "hora_dashboard": "Hora",
+        "ocupadas": "Butacas vendidas",
+        "duracion_media": "Duración media (min)",
+        "duracion_max": "Duración máxima (min)",
+        "sesiones": "Sesiones",
+    },
+}
 
-    demanda = (
-        df_filtrado.groupby("hora_dashboard", as_index=False)["ocupadas"]
-        .sum()
-        .sort_values("hora_dashboard")
-    )
+if modo_duracion in {"Color por duración media", "Color + etiqueta"}:
+    bar_kwargs["color"] = "duracion_media"
+    bar_kwargs["color_continuous_scale"] = "Blues"
 
-    fig_demanda = px.bar(
-        demanda,
-        x="hora_dashboard",
-        y="ocupadas",
-        labels={"hora_dashboard": "Hora inicio", "ocupadas": "Butacas ocupadas"},
-    )
-    fig_demanda.update_layout(
-        xaxis_title="Hora inicio",
-        yaxis_title="Butacas ocupadas",
-        dragmode=False,
-    )
-    fig_demanda.update_xaxes(fixedrange=True)
-    fig_demanda.update_yaxes(fixedrange=True)
+if modo_duracion in {"Etiqueta con duración media", "Color + etiqueta"}:
+    bar_kwargs["text"] = "duracion_media_label"
 
-    st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": False})
+fig_demanda = px.bar(**bar_kwargs)
+fig_demanda.update_traces(
+    textposition="outside",
+    cliponaxis=False,
+    hovertemplate=(
+        "Hora: %{x}<br>"
+        "Butacas vendidas: %{y}<br>"
+        "Sesiones: %{customdata[0]}<br>"
+        "Duración media: %{customdata[1]:.1f} min<br>"
+        "Duración máxima: %{customdata[2]} min<extra></extra>"
+    ),
+)
+fig_demanda.update_layout(
+    xaxis_title="Hora de inicio",
+    yaxis_title="Butacas vendidas",
+    dragmode=False,
+    margin=dict(l=20, r=20, t=10, b=20),
+)
+fig_demanda.update_xaxes(fixedrange=True)
+fig_demanda.update_yaxes(fixedrange=True)
+
+if modo_duracion in {"Color por duración media", "Color + etiqueta"}:
+    fig_demanda.update_layout(coloraxis_colorbar_title="Duración media")
+
+st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": False})
 
 # ======================
 # TOP SESIONES
