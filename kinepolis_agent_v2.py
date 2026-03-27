@@ -1,37 +1,359 @@
-from playwright.sync_api import sync_playwright
-import re
-import csv
-import json
-import time                # NUEVO
-from datetime import datetime   # NUEVO
-import pandas as pd
 import os
+import json
+import re
+import subprocess
+import time
+from datetime import datetime, timedelta
+from urllib.parse import urljoin
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+from playwright.sync_api import sync_playwright
 
 URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
 
 MAX_PAGES = 12
 
 patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
+patron_fecha_iso = re.compile(r"(\d{4}-\d{2}-\d{2})")
+patron_fecha_es = re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")
+patron_sala = re.compile(r"\b(?:sala|screen|auditorium)\s*[:\-]?\s*([A-Za-z0-9]+)\b", re.IGNORECASE)
+patron_codigo_sala = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?$")
+
+MESES_ES = {
+    "ene": 1,
+    "enero": 1,
+    "feb": 2,
+    "febrero": 2,
+    "mar": 3,
+    "marzo": 3,
+    "abr": 4,
+    "abril": 4,
+    "may": 5,
+    "mayo": 5,
+    "jun": 6,
+    "junio": 6,
+    "jul": 7,
+    "julio": 7,
+    "ago": 8,
+    "agosto": 8,
+    "sep": 9,
+    "sept": 9,
+    "septiembre": 9,
+    "oct": 10,
+    "octubre": 10,
+    "nov": 11,
+    "noviembre": 11,
+    "dic": 12,
+    "diciembre": 12,
+}
 
 resultados = []
+
+COLUMNAS_RESULTADO = [
+    "fecha",
+    "pelicula",
+    "hora",
+    "hora_fin",
+    "duracion_minutos",
+    "sala",
+    "total",
+    "ocupadas",
+    "libres",
+    "ocupacion",
+]
+
+
+def asegurar_columnas_resultado(df):
+    if df is None:
+        df = pd.DataFrame()
+
+    df = df.copy()
+
+    for columna in COLUMNAS_RESULTADO:
+         if columna not in df.columns:
+            df[columna] = "" if columna in {"fecha", "pelicula", "hora", "hora_fin", "sala"} else 0
+    return df[COLUMNAS_RESULTADO]
+
+
+def cargar_csv_existente(ruta_csv):
+    if not os.path.exists(ruta_csv) or os.path.getsize(ruta_csv) == 0:
+        return asegurar_columnas_resultado(pd.DataFrame())
+
+    try:
+        df_existente = pd.read_csv(ruta_csv)
+    except pd.errors.EmptyDataError:
+        return asegurar_columnas_resultado(pd.DataFrame())
+
+    return asegurar_columnas_resultado(df_existente)
 
 # ======================
 # TIEMPO DE INICIO
 # ======================
 
+MADRID_TZ = ZoneInfo("Europe/Madrid")
+UTC_TZ = ZoneInfo("UTC")
+
 inicio_script = time.time()  # NUEVO
-hora_inicio = datetime.now() # NUEVO
+hora_inicio = datetime.now(UTC_TZ) # NUEVO
+hora_referencia_madrid = hora_inicio.astimezone(MADRID_TZ)
 
 print("\n==============================")
 print("INFORME KINEPOLIS")
-print("Inicio del informe:", hora_inicio.strftime("%Y-%m-%d %H:%M:%S"))
+print("Inicio del informe:", hora_referencia_madrid.strftime("%Y-%m-%d %H:%M:%S"))
 print("==============================\n")
 
 
-def analizar_sesion(page, sesion):
+def normalizar_texto(texto):
+    return " ".join(texto.replace("\xa0", " ").split())
+
+
+def normalizar_clave_pelicula(titulo):
+    return normalizar_texto(titulo).strip().lower()
+
+
+def cargar_cache_duraciones(ruta_cache):
+    if not os.path.exists(ruta_cache) or os.path.getsize(ruta_cache) == 0:
+        return {}
+
+    try:
+        with open(ruta_cache, "r", encoding="utf-8") as f:
+            contenido = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    if not isinstance(contenido, dict):
+        return {}
+
+    cache_limpio = {}
+    for clave, valor in contenido.items():
+        try:
+            minutos = int(valor)
+            if minutos > 0:
+                cache_limpio[str(clave)] = minutos
+        except (ValueError, TypeError):
+            continue
+
+    return cache_limpio
+
+
+def guardar_cache_duraciones(ruta_cache, cache_duraciones):
+    with open(ruta_cache, "w", encoding="utf-8") as f:
+        json.dump(cache_duraciones, f, indent=2, ensure_ascii=False, sort_keys=True)
+
+
+def extraer_minutos_desde_texto(texto):
+    if not texto:
+        return None
+
+    match = re.search(r"(\d{2,3})\s*(?:min|mins|minutos)\b", texto, re.IGNORECASE)
+    if not match:
+        return None
+
+    minutos = int(match.group(1))
+    return minutos if minutos > 0 else None
+
+
+def sumar_minutos_a_hora(hora, minutos):
+    if not hora or not isinstance(minutos, int) or minutos <= 0:
+        return ""
+
+    try:
+        inicio = datetime.strptime(hora, "%H:%M")
+    except ValueError:
+        return ""
+
+    return (inicio + timedelta(minutes=minutos)).strftime("%H:%M")
+
+
+def extraer_duracion_desde_detalle(page):
+    selector_duracion = page.locator("div.movie-duration-wrapper")
+
+    if selector_duracion.count() > 0:
+        texto_duracion = normalizar_texto(selector_duracion.first.inner_text())
+        minutos = extraer_minutos_desde_texto(texto_duracion)
+        if minutos:
+            return minutos
+
+    return None
+
+
+def extraer_enlaces_peliculas_desde_cartelera(page):
+    peliculas = page.evaluate(
+        """
+        () => {
+          const resultados = [];
+          const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
+          for (const sesion of sesiones) {
+            const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
+            const scope = card || sesion.parentElement || sesion;
+            const enlace = scope.querySelector("a[href]:not([href^='javascript'])");
+            if (!enlace) continue;
+
+            const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
+            const titulo = (tituloEl?.textContent || enlace.getAttribute("title") || enlace.textContent || "").trim();
+            const href = enlace.getAttribute("href");
+            if (!href || !titulo) continue;
+
+            resultados.push({ titulo, href });
+          }
+          return resultados;
+        }
+        """
+    )
+
+    peliculas_unicas = {}
+    for pelicula in peliculas:
+        titulo = normalizar_texto(str(pelicula.get("titulo", "")))
+        href = str(pelicula.get("href", "")).strip()
+        if not titulo or not href:
+            continue
+
+        clave = normalizar_clave_pelicula(titulo)
+        if clave not in peliculas_unicas:
+            peliculas_unicas[clave] = {
+                "titulo": titulo,
+                "url": urljoin(URL, href),
+            }
+
+    return peliculas_unicas
+
+
+def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_duraciones):
+    nuevos_registros = 0
+    page_detalle = context.new_page()
+
+    try:
+        for clave, datos in peliculas_cartelera.items():
+            if clave in cache_duraciones:
+                continue
+
+            url_detalle = datos["url"]
+            try:
+                page_detalle.goto(url_detalle, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                continue
+
+            minutos = extraer_duracion_desde_detalle(page_detalle)
+            if minutos:
+                cache_duraciones[clave] = minutos
+                nuevos_registros += 1
+                print(f"Duración guardada: {datos['titulo']} -> {minutos} min")
+    finally:
+        page_detalle.close()
+
+    return nuevos_registros
+
+
+def extraer_fecha_desde_texto(texto, fecha_referencia):
+    texto_normalizado = normalizar_texto(texto)
+
+    match_iso = patron_fecha_iso.search(texto_normalizado)
+
+    if match_iso:
+        return match_iso.group(1)
+
+    match_es = patron_fecha_es.search(texto_normalizado)
+
+    if match_es:
+        dia, mes, anio = match_es.groups()
+        anio = int(anio)
+        if anio < 100:
+            anio += 2000
+        return datetime(anio, int(mes), int(dia)).strftime("%Y-%m-%d")
+
+    texto_limpio = re.sub(r"[.,]", " ", texto_normalizado.lower())
+    tokens = texto_limpio.split()
+
+    for i, token in enumerate(tokens[:-1]):
+        if not token.isdigit():
+            continue
+
+        mes = MESES_ES.get(tokens[i + 1])
+
+        if not mes:
+            continue
+
+        dia = int(token)
+        anio = fecha_referencia.year
+
+        if i + 2 < len(tokens) and tokens[i + 2].isdigit() and len(tokens[i + 2]) == 4:
+            anio = int(tokens[i + 2])
+
+        fecha = datetime(anio, mes, dia)
+
+        if abs((fecha - fecha_referencia).days) > 330:
+            fecha = datetime(anio + 1, mes, dia)
+
+        return fecha.strftime("%Y-%m-%d")
+
+    return fecha_referencia.strftime("%Y-%m-%d")
+
+
+def extraer_sala_desde_texto(texto):
+    texto_normalizado = normalizar_texto(texto)
+    match_sala = patron_sala.search(texto_normalizado)
+
+    if match_sala:
+        return match_sala.group(1).upper()
+
+    return ""
+
+
+def extraer_sala_desde_order_list(page):
+    items = page.locator("div.order-list-item")
+
+    for i in range(items.count()):
+        item = items.nth(i)
+        texto_item = normalizar_texto(item.inner_text())
+
+        if "sala" not in texto_item.lower():
+            continue
+
+        valores = item.locator("div.order-list-item-value")
+
+        for j in range(valores.count()):
+            valor = normalizar_texto(valores.nth(j).inner_text())
+
+            if not valor:
+                continue
+
+            sala = extraer_sala_desde_texto(valor)
+
+            if sala:
+                return sala
+
+            valor_limpio = valor.replace(" ", "")
+
+            if patron_codigo_sala.fullmatch(valor_limpio):
+                return valor_limpio.upper()
+
+        sala = extraer_sala_desde_texto(texto_item)
+
+        if sala:
+            return sala
+
+    return ""
+
+
+def extraer_detalles_sesion(page, fecha_referencia):
+    info_element = page.locator("div.order-additional-info")
+
+    if info_element.count() == 0:
+        return fecha_referencia.strftime("%Y-%m-%d"), extraer_sala_desde_order_list(page)
+
+    texto_info = info_element.first.inner_text().strip()
+    fecha_sesion = extraer_fecha_desde_texto(texto_info, fecha_referencia)
+    sala = extraer_sala_desde_order_list(page)
+
+    return fecha_sesion, sala
+
+
+def analizar_sesion(page, sesion, cache_duraciones, cache_modificada):
 
     hora = sesion["hora"]
     vsessionid = sesion["vsessionid"]
+    fecha_referencia = sesion["fecha_referencia"]
 
     try:
 
@@ -82,6 +404,20 @@ def analizar_sesion(page, sesion):
         if titulo_element.count() > 0:
             titulo = titulo_element.first.inner_text().strip()
 
+        fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
+
+        clave_pelicula = normalizar_clave_pelicula(titulo)
+        duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
+
+        if not duracion_minutos:
+            duracion_encontrada = extraer_duracion_desde_detalle(page)
+            if duracion_encontrada:
+                cache_duraciones[clave_pelicula] = duracion_encontrada
+                cache_modificada["valor"] = True
+                duracion_minutos = duracion_encontrada
+
+        hora_fin = sumar_minutos_a_hora(hora, int(duracion_minutos) if duracion_minutos else 0)
+
         ocupadas = page.locator(
             'label[data-seats-status="1"]'
         ).count()
@@ -91,21 +427,31 @@ def analizar_sesion(page, sesion):
         ).count()
 
         ocupacion = round((ocupadas / total) * 100, 2) if total else 0
-
+        
         print(
             titulo,
             "|",
+            fecha_sesion,
+            "|",
             hora,
+            "->",
+            hora_fin or "N/D",
+            "| sala:",
+            sala or "N/D",
+            "|",
             "| ocupadas:",
             ocupadas,
             "| ocupación:",
             ocupacion,
             "%"
         )
-
         return {
+            "fecha": fecha_sesion,
             "pelicula": titulo,
             "hora": hora,
+            "hora_fin": hora_fin,
+            "duracion_minutos": int(duracion_minutos) if duracion_minutos else 0,
+            "sala": sala,
             "total": total,
             "ocupadas": ocupadas,
             "libres": total - ocupadas,
@@ -143,6 +489,10 @@ with sync_playwright() as p:
         else route.continue_()
     )
 
+    ruta_cache_duraciones = "duraciones_peliculas.json"
+    cache_duraciones = cargar_cache_duraciones(ruta_cache_duraciones)
+    cache_modificada = {"valor": False}
+
     page = context.new_page()
 
     print("Abriendo cartelera...")
@@ -160,6 +510,15 @@ with sync_playwright() as p:
     page.mouse.wheel(0, 3000)
 
     page.wait_for_selector("[data-vsessionid]", timeout=20000)
+    peliculas_cartelera = extraer_enlaces_peliculas_desde_cartelera(page)
+    nuevas_duraciones = rellenar_cache_duraciones_desde_enlaces(
+        context,
+        peliculas_cartelera,
+        cache_duraciones,
+    )
+    if nuevas_duraciones:
+        cache_modificada["valor"] = True
+        print(f"Nuevas duraciones añadidas a la cache: {nuevas_duraciones}")
 
     enlaces = page.locator("[data-vsessionid]")
 
@@ -175,7 +534,8 @@ with sync_playwright() as p:
 
             sesiones.append({
                 "hora": texto,
-                "vsessionid": vsessionid
+                "vsessionid": vsessionid,
+                "fecha_referencia": hora_inicio,
             })
 
     print("Sesiones encontradas:", len(sesiones))
@@ -188,7 +548,7 @@ with sync_playwright() as p:
 
         for page_instance, sesion in zip(pages, lote):
 
-            r = analizar_sesion(page_instance, sesion)
+            r = analizar_sesion(page_instance, sesion, cache_duraciones, cache_modificada)
 
             if r:
                 resultados.append(r)
@@ -197,6 +557,10 @@ with sync_playwright() as p:
             page_instance.close()
 
     browser.close()
+
+if cache_modificada["valor"]:
+    guardar_cache_duraciones(ruta_cache_duraciones, cache_duraciones)
+    print("Cache de duraciones actualizada.")
 
 
 # ======================
@@ -259,29 +623,49 @@ for hora, datos in sorted(resumen_horas.items()):
     # writer.writerows(resultados)
 archivo = "ocupacion_kinepolis.csv"
 
-df_nuevo = pd.DataFrame(resultados)
+df_nuevo = asegurar_columnas_resultado(pd.DataFrame(resultados))
 
-if os.path.exists(archivo):
+df_existente = cargar_csv_existente(archivo)
 
-    df_existente = pd.read_csv(archivo)
+df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
 
-    df_total = pd.concat([df_existente, df_nuevo])
+columnas_deduplicacion = ["fecha", "pelicula", "hora"]
 
-    # eliminar duplicados de misma pelicula + hora
-    df_total = df_total.drop_duplicates(
-        subset=["pelicula", "hora"],
-        keep="last"
-    )
+if "sala" in df_total.columns:
+    df_total["sala"] = df_total["sala"].fillna("").astype(str)
+    columnas_deduplicacion.append("sala")
 
-else:
+df_total = df_total.drop_duplicates(
+    subset=columnas_deduplicacion,
+    keep="last"
+)
 
-    df_total = df_nuevo
+# ======================
+# FILTRAR ÚLTIMOS 15 DÍAS
+# ======================
+
+if not df_total.empty:
+
+    df_total["fecha"] = pd.to_datetime(df_total["fecha"], errors="coerce")
+
+    limite = datetime.now() - timedelta(days=15)
+
+    df_total = df_total[df_total["fecha"].notna()]
+    df_total = df_total[df_total["fecha"] >= limite]
+
+    df_total["fecha"] = df_total["fecha"].dt.strftime("%Y-%m-%d")
+
+df_total = asegurar_columnas_resultado(df_total)
+
+# ======================
+# GUARDAR CSV
+# ======================
 
 df_total.to_csv(
     archivo,
     index=False,
-    encoding="utf-8"
-)    
+    encoding="utf-8-sig"
+)
 
 print("\nDatos guardados en ocupacion_kinepolis.csv")
 
@@ -321,12 +705,11 @@ with open("metadata.json", "w", encoding="utf-8") as f:
 
 print("\nMetadata guardada en metadata.json")
 
-import subprocess
-
 def subir_a_github():
 
     subprocess.run(["git", "add", "ocupacion_kinepolis.csv"])
     subprocess.run(["git", "add", "metadata.json"])
+    subprocess.run(["git", "add", "duraciones_peliculas.json"])
 
     subprocess.run([
         "git",
