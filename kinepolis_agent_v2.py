@@ -163,6 +163,39 @@ def extraer_minutos_desde_texto(texto):
     return minutos if minutos > 0 else None
 
 
+def extraer_duracion_desde_bloques_label_value(page):
+    bloques = page.locator("div.movie-duration-wrapper")
+
+    try:
+        total = bloques.count()
+    except Exception as exc:
+        debug_duracion(f"Bloques label/value no accesibles: {exc}")
+        return None
+
+    for i in range(total):
+        bloque = bloques.nth(i)
+        try:
+            etiqueta = normalizar_texto(bloque.locator(".label-wrapper").inner_text())
+            valor = normalizar_texto(bloque.locator(".value-wrapper").inner_text())
+        except Exception as exc:
+            debug_duracion(f"Bloque duration[{i}] no legible: {exc}")
+            continue
+
+        debug_duracion(f"Bloque duration[{i}] etiqueta={etiqueta!r} valor={valor!r}")
+
+        if "duración" not in etiqueta.lower() and "duracion" not in etiqueta.lower():
+            continue
+
+        minutos = extraer_minutos_desde_texto(valor)
+        if not minutos and valor.isdigit():
+            minutos = int(valor)
+
+        if minutos:
+            return minutos
+
+    return None
+
+
 def sumar_minutos_a_hora(hora, minutos):
     if not hora or not isinstance(minutos, int) or minutos <= 0:
         return ""
@@ -191,6 +224,16 @@ def extraer_duracion_desde_detalle(page, contexto="detalle"):
     ]
 
     debug_duracion(f"Contexto: {contexto} | URL: {page.url}")
+
+    try:
+        page.wait_for_selector("div.movie-duration-wrapper, [class*='duration'], [class*='runtime']", timeout=5000)
+    except Exception as exc:
+        debug_duracion(f"No apareció selector de duración tras espera inicial: {exc}")
+
+    minutos_bloque = extraer_duracion_desde_bloques_label_value(page)
+    if minutos_bloque:
+        debug_duracion(f"Duración obtenida desde bloque label/value: {minutos_bloque}")
+        return minutos_bloque
 
     for selector in selectores_duracion:
         locator = page.locator(selector)
