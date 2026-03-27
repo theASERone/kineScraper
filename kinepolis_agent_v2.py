@@ -4,6 +4,7 @@ import re
 import subprocess
 import time
 from datetime import datetime, timedelta
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -53,6 +54,8 @@ COLUMNAS_RESULTADO = [
     "fecha",
     "pelicula",
     "hora",
+    "hora_fin",
+    "duracion_minutos",
     "sala",
     "total",
     "ocupadas",
@@ -68,9 +71,8 @@ def asegurar_columnas_resultado(df):
     df = df.copy()
 
     for columna in COLUMNAS_RESULTADO:
-        if columna not in df.columns:
-            df[columna] = "" if columna in {"fecha", "pelicula", "hora", "sala"} else 0
-
+         if columna not in df.columns:
+            df[columna] = "" if columna in {"fecha", "pelicula", "hora", "hora_fin", "sala"} else 0
     return df[COLUMNAS_RESULTADO]
 
 
@@ -104,6 +106,143 @@ print("==============================\n")
 
 def normalizar_texto(texto):
     return " ".join(texto.replace("\xa0", " ").split())
+
+
+def normalizar_clave_pelicula(titulo):
+    return normalizar_texto(titulo).strip().lower()
+
+
+def cargar_cache_duraciones(ruta_cache):
+    if not os.path.exists(ruta_cache) or os.path.getsize(ruta_cache) == 0:
+        return {}
+
+    try:
+        with open(ruta_cache, "r", encoding="utf-8") as f:
+            contenido = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    if not isinstance(contenido, dict):
+        return {}
+
+    cache_limpio = {}
+    for clave, valor in contenido.items():
+        try:
+            minutos = int(valor)
+            if minutos > 0:
+                cache_limpio[str(clave)] = minutos
+        except (ValueError, TypeError):
+            continue
+
+    return cache_limpio
+
+
+def guardar_cache_duraciones(ruta_cache, cache_duraciones):
+    with open(ruta_cache, "w", encoding="utf-8") as f:
+        json.dump(cache_duraciones, f, indent=2, ensure_ascii=False, sort_keys=True)
+
+
+def extraer_minutos_desde_texto(texto):
+    if not texto:
+        return None
+
+    match = re.search(r"(\d{2,3})\s*(?:min|mins|minutos)\b", texto, re.IGNORECASE)
+    if not match:
+        return None
+
+    minutos = int(match.group(1))
+    return minutos if minutos > 0 else None
+
+
+def sumar_minutos_a_hora(hora, minutos):
+    if not hora or not isinstance(minutos, int) or minutos <= 0:
+        return ""
+
+    try:
+        inicio = datetime.strptime(hora, "%H:%M")
+    except ValueError:
+        return ""
+
+    return (inicio + timedelta(minutes=minutos)).strftime("%H:%M")
+
+
+def extraer_duracion_desde_detalle(page):
+    selector_duracion = page.locator("div.movie-duration-wrapper")
+
+    if selector_duracion.count() > 0:
+        texto_duracion = normalizar_texto(selector_duracion.first.inner_text())
+        minutos = extraer_minutos_desde_texto(texto_duracion)
+        if minutos:
+            return minutos
+
+    return None
+
+
+def extraer_enlaces_peliculas_desde_cartelera(page):
+    peliculas = page.evaluate(
+        """
+        () => {
+          const resultados = [];
+          const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
+          for (const sesion of sesiones) {
+            const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
+            const scope = card || sesion.parentElement || sesion;
+            const enlace = scope.querySelector("a[href]:not([href^='javascript'])");
+            if (!enlace) continue;
+
+            const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
+            const titulo = (tituloEl?.textContent || enlace.getAttribute("title") || enlace.textContent || "").trim();
+            const href = enlace.getAttribute("href");
+            if (!href || !titulo) continue;
+
+            resultados.push({ titulo, href });
+          }
+          return resultados;
+        }
+        """
+    )
+
+    peliculas_unicas = {}
+    for pelicula in peliculas:
+        titulo = normalizar_texto(str(pelicula.get("titulo", "")))
+        href = str(pelicula.get("href", "")).strip()
+        if not titulo or not href:
+            continue
+
+        clave = normalizar_clave_pelicula(titulo)
+        if clave not in peliculas_unicas:
+            peliculas_unicas[clave] = {
+                "titulo": titulo,
+                "url": urljoin(URL, href),
+            }
+
+    return peliculas_unicas
+
+
+def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_duraciones):
+    nuevos_registros = 0
+    page_detalle = context.new_page()
+
+    try:
+        for clave, datos in peliculas_cartelera.items():
+            if clave in cache_duraciones:
+                continue
+
+            url_detalle = datos["url"]
+            try:
+                page_detalle.goto(url_detalle, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                continue
+
+            minutos = extraer_duracion_desde_detalle(page_detalle)
+            if minutos:
+                cache_duraciones[clave] = minutos
+                nuevos_registros += 1
+                print(f"Duración guardada: {datos['titulo']} -> {minutos} min")
+    finally:
+        page_detalle.close()
+
+    return nuevos_registros
 
 
 def extraer_fecha_desde_texto(texto, fecha_referencia):
@@ -210,7 +349,7 @@ def extraer_detalles_sesion(page, fecha_referencia):
     return fecha_sesion, sala
 
 
-def analizar_sesion(page, sesion):
+def analizar_sesion(page, sesion, cache_duraciones, cache_modificada):
 
     hora = sesion["hora"]
     vsessionid = sesion["vsessionid"]
@@ -267,6 +406,18 @@ def analizar_sesion(page, sesion):
 
         fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
 
+        clave_pelicula = normalizar_clave_pelicula(titulo)
+        duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
+
+        if not duracion_minutos:
+            duracion_encontrada = extraer_duracion_desde_detalle(page)
+            if duracion_encontrada:
+                cache_duraciones[clave_pelicula] = duracion_encontrada
+                cache_modificada["valor"] = True
+                duracion_minutos = duracion_encontrada
+
+        hora_fin = sumar_minutos_a_hora(hora, int(duracion_minutos) if duracion_minutos else 0)
+
         ocupadas = page.locator(
             'label[data-seats-status="1"]'
         ).count()
@@ -283,6 +434,8 @@ def analizar_sesion(page, sesion):
             fecha_sesion,
             "|",
             hora,
+            "->",
+            hora_fin or "N/D",
             "| sala:",
             sala or "N/D",
             "|",
@@ -296,6 +449,8 @@ def analizar_sesion(page, sesion):
             "fecha": fecha_sesion,
             "pelicula": titulo,
             "hora": hora,
+            "hora_fin": hora_fin,
+            "duracion_minutos": int(duracion_minutos) if duracion_minutos else 0,
             "sala": sala,
             "total": total,
             "ocupadas": ocupadas,
@@ -323,7 +478,6 @@ with sync_playwright() as p:
         viewport={"width": 1920, "height": 1080},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         locale="es-ES",
-        timezone_id="Europe/Madrid",
     )
     context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {get: () => undefined})
@@ -334,6 +488,10 @@ with sync_playwright() as p:
         if route.request.resource_type in ["image", "stylesheet", "font", "media"]
         else route.continue_()
     )
+
+    ruta_cache_duraciones = "duraciones_peliculas.json"
+    cache_duraciones = cargar_cache_duraciones(ruta_cache_duraciones)
+    cache_modificada = {"valor": False}
 
     page = context.new_page()
 
@@ -352,11 +510,19 @@ with sync_playwright() as p:
     page.mouse.wheel(0, 3000)
 
     page.wait_for_selector("[data-vsessionid]", timeout=20000)
+    peliculas_cartelera = extraer_enlaces_peliculas_desde_cartelera(page)
+    nuevas_duraciones = rellenar_cache_duraciones_desde_enlaces(
+        context,
+        peliculas_cartelera,
+        cache_duraciones,
+    )
+    if nuevas_duraciones:
+        cache_modificada["valor"] = True
+        print(f"Nuevas duraciones añadidas a la cache: {nuevas_duraciones}")
 
     enlaces = page.locator("[data-vsessionid]")
 
     sesiones = []
-    sesiones_vistas = set()
 
     for i in range(enlaces.count()):
 
@@ -365,20 +531,14 @@ with sync_playwright() as p:
         if patron_hora.match(texto):
 
             vsessionid = enlaces.nth(i).get_attribute("data-vsessionid")
-            clave_sesion = (vsessionid, texto)
-
-            if not vsessionid or clave_sesion in sesiones_vistas:
-                continue
-
-            sesiones_vistas.add(clave_sesion)
 
             sesiones.append({
                 "hora": texto,
                 "vsessionid": vsessionid,
-                "fecha_referencia": hora_referencia_madrid,
+                "fecha_referencia": hora_inicio,
             })
 
-    print("Sesiones únicas encontradas:", len(sesiones))
+    print("Sesiones encontradas:", len(sesiones))
 
     for i in range(0, len(sesiones), MAX_PAGES):
 
@@ -388,7 +548,7 @@ with sync_playwright() as p:
 
         for page_instance, sesion in zip(pages, lote):
 
-            r = analizar_sesion(page_instance, sesion)
+            r = analizar_sesion(page_instance, sesion, cache_duraciones, cache_modificada)
 
             if r:
                 resultados.append(r)
@@ -397,6 +557,10 @@ with sync_playwright() as p:
             page_instance.close()
 
     browser.close()
+
+if cache_modificada["valor"]:
+    guardar_cache_duraciones(ruta_cache_duraciones, cache_duraciones)
+    print("Cache de duraciones actualizada.")
 
 
 # ======================
@@ -484,7 +648,7 @@ if not df_total.empty:
 
     df_total["fecha"] = pd.to_datetime(df_total["fecha"], errors="coerce")
 
-    limite = datetime.now(MADRID_TZ).replace(tzinfo=None) - timedelta(days=15)
+    limite = datetime.now() - timedelta(days=15)
 
     df_total = df_total[df_total["fecha"].notna()]
     df_total = df_total[df_total["fecha"] >= limite]
@@ -515,7 +679,7 @@ fin_script = time.time()  # NUEVO
 duracion = round(fin_script - inicio_script, 2)
 
 print("\n==============================")
-print("Informe generado:", datetime.now(MADRID_TZ).strftime("%Y-%m-%d %H:%M:%S"))
+print("Informe generado:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 print("Tiempo total de ejecución:", duracion, "segundos")
 print("==============================")
 
@@ -525,7 +689,7 @@ print("==============================")
 
 fin_script = time.time()
 
-hora_fin = datetime.now(UTC_TZ)
+hora_fin = datetime.now()
 
 duracion = round(fin_script - inicio_script, 2)
 
@@ -545,6 +709,7 @@ def subir_a_github():
 
     subprocess.run(["git", "add", "ocupacion_kinepolis.csv"])
     subprocess.run(["git", "add", "metadata.json"])
+    subprocess.run(["git", "add", "duraciones_peliculas.json"])
 
     subprocess.run([
         "git",
