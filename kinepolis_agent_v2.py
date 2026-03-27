@@ -651,35 +651,9 @@ with sync_playwright() as p:
 
     page.wait_for_timeout(3000)
     page.mouse.wheel(0, 3000)
-
     page.wait_for_selector("[data-vsessionid]", timeout=20000)
-    peliculas_cartelera = extraer_enlaces_peliculas_desde_cartelera(page)
-    nuevas_duraciones = rellenar_cache_duraciones_desde_enlaces(
-        context,
-        peliculas_cartelera,
-        cache_duraciones,
-    )
-    if nuevas_duraciones:
-        cache_modificada["valor"] = True
-        print(f"Nuevas duraciones añadidas a la cache: {nuevas_duraciones}")
-
-    enlaces = page.locator("[data-vsessionid]")
-
-    sesiones = []
-
-    for i in range(enlaces.count()):
-
-        texto = enlaces.nth(i).inner_text().strip()
-
-        if patron_hora.match(texto):
-
-            vsessionid = enlaces.nth(i).get_attribute("data-vsessionid")
-
-            sesiones.append({
-                "hora": texto,
-                "vsessionid": vsessionid,
-                "fecha_referencia": hora_inicio,
-            })
+    sesiones = extraer_sesiones_desde_cartelera(page, hora_inicio)
+    # Duraciones: ahora se resuelven por sesion al abrir la ficha solo si faltan en cache.
 
     print("Sesiones encontradas:", len(sesiones))
 
@@ -691,7 +665,7 @@ with sync_playwright() as p:
 
         for page_instance, sesion in zip(pages, lote):
 
-            r = analizar_sesion(page_instance, sesion, cache_duraciones, cache_modificada)
+            r = analizar_sesion(page_instance, context, sesion, cache_duraciones, cache_modificada)
 
             if r:
                 resultados.append(r)
