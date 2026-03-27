@@ -15,7 +15,7 @@ st.set_page_config(layout="wide")
 
 st_autorefresh(interval=10000, key="datarefresh")
 
-st.title("🎬 Ocupación Kinepolis")
+st.title("?? Ocupación Kinepolis")
 
 # ======================
 # CARGAR DATOS
@@ -73,6 +73,8 @@ if "sala" not in df.columns:
     df["sala"] = ""
 else:
     df["sala"] = df["sala"].apply(formatear_sala)
+if "hora_fin" not in df.columns:
+    df["hora_fin"] = ""
 
 columnas_deduplicacion = ["fecha", "pelicula", "hora", "sala"]
 df = df.drop_duplicates(subset=columnas_deduplicacion, keep="last")
@@ -84,6 +86,7 @@ df["fecha_hora_dashboard"] = pd.to_datetime(
 
 df["fecha_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%Y-%m-%d")
 df["hora_dashboard"] = df["fecha_hora_dashboard"].dt.strftime("%H:%M")
+df["hora_fin_dashboard"] = df["hora_fin"].astype(str).str.strip()
 
 df.loc[df["fecha_hora_dashboard"].isna(), "fecha_dashboard"] = df.loc[
     df["fecha_hora_dashboard"].isna(), "fecha"
@@ -91,6 +94,8 @@ df.loc[df["fecha_hora_dashboard"].isna(), "fecha_dashboard"] = df.loc[
 df.loc[df["fecha_hora_dashboard"].isna(), "hora_dashboard"] = df.loc[
     df["fecha_hora_dashboard"].isna(), "hora"
 ]
+
+df.loc[df["hora_fin_dashboard"].isin(["", "nan", "NaT"]), "hora_fin_dashboard"] = "N/D"
 
 df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
 
@@ -111,7 +116,7 @@ def formatear_fecha(fecha_iso: str) -> str:
 
 
 fecha_seleccionada = st.selectbox(
-    "📅 Selecciona el día",
+    "?? Selecciona el día",
     options=opciones_fecha,
     index=0,
     format_func=formatear_fecha,
@@ -132,18 +137,22 @@ st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madr
 # DEMANDA POR HORA
 # ======================
 
-st.subheader("📈 Demanda por horario")
+st.subheader("?? Demanda por horario")
 
-demanda = df_filtrado.groupby("hora_dashboard", as_index=False)["ocupadas"].sum().sort_values("hora_dashboard")
+demanda = (
+    df_filtrado.groupby("hora_fin_dashboard", as_index=False)["ocupadas"]
+    .sum()
+    .sort_values("hora_fin_dashboard")
+)
 
 fig_demanda = px.bar(
     demanda,
-    x="hora_dashboard",
+    x="hora_fin_dashboard",
     y="ocupadas",
-    labels={"hora_dashboard": "Hora", "ocupadas": "Butacas ocupadas"},
+    labels={"hora_fin_dashboard": "Hora fin", "ocupadas": "Butacas ocupadas"},
 )
 fig_demanda.update_layout(
-    xaxis_title="Hora",
+    xaxis_title="Hora fin",
     yaxis_title="Butacas ocupadas",
     dragmode=False,
 )
@@ -156,11 +165,12 @@ st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": Fal
 # TOP SESIONES
 # ======================
 
-st.subheader("🔥 Sesiones con mayor ocupación")
+st.subheader("?? Sesiones con mayor ocupación")
 
 top_sesiones = df_filtrado.assign(
     fecha=df_filtrado["fecha_dashboard"],
     hora=df_filtrado["hora_dashboard"],
+    hora_fin=df_filtrado["hora_fin_dashboard"],
 ).sort_values("ocupacion_pct", ascending=False).head(10)
 
 st.dataframe(
@@ -169,6 +179,7 @@ st.dataframe(
             "pelicula",
             "fecha",
             "hora",
+            "hora_fin",
             "sala",
             "ocupadas",
             "total",
@@ -182,18 +193,19 @@ st.dataframe(
 # TABLA COMPLETA
 # ======================
 
-st.subheader("📋 Datos completos")
+st.subheader("?? Datos completos")
 
 tabla_completa = df_filtrado.assign(
     fecha=df_filtrado["fecha_dashboard"],
     hora=df_filtrado["hora_dashboard"],
+    hora_fin=df_filtrado["hora_fin_dashboard"],
 )[
     [
         "pelicula",
         "fecha",
         "hora",
+        "hora_fin",
         "sala",
-        "ocupadas",
         "total",
         "libres",
         "ocupacion_pct",
@@ -206,7 +218,7 @@ st.dataframe(tabla_completa)
 # PANEL MÉTRICAS
 # ======================
 
-st.subheader("📊 Indicadores")
+st.subheader("?? Indicadores")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
