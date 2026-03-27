@@ -167,8 +167,19 @@ def sumar_minutos_a_hora(hora, minutos):
 
 
 def extraer_duracion_desde_detalle(page):
-    selector_duracion = page.locator("div.movie-duration-wrapper")
+    selector_valor = page.locator(
+        "div.movie-duration-wraper .value-wraper, "
+        "div.movie-duration-wrapper .value-wrapper, "
+        "div.movie-duration-wraper .value-wrapper, "
+        "div.movie-duration-wrapper .value-wraper"
+    )
+    if selector_valor.count() > 0:
+        texto_duracion = normalizar_texto(selector_valor.first.inner_text())
+        minutos = extraer_minutos_desde_texto(texto_duracion)
+        if minutos:
+            return minutos
 
+    selector_duracion = page.locator("div.movie-duration-wraper, div.movie-duration-wrapper")
     if selector_duracion.count() > 0:
         texto_duracion = normalizar_texto(selector_duracion.first.inner_text())
         minutos = extraer_minutos_desde_texto(texto_duracion)
@@ -178,22 +189,21 @@ def extraer_duracion_desde_detalle(page):
     return None
 
 
-def extraer_enlaces_peliculas_desde_cartelera(page):
+def extraer_peliculas_desde_cartelera(page):
     peliculas = page.evaluate(
         """
         () => {
           const resultados = [];
-          const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
-          for (const sesion of sesiones) {
-            const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
-            const scope = card || sesion.parentElement || sesion;
-            const enlace = scope.querySelector("a[href]:not([href^='javascript'])");
-            if (!enlace) continue;
+          const titulos = Array.from(document.querySelectorAll("div.movie-overview-title"));
+          for (const tituloEl of titulos) {
+            const titulo = (tituloEl.textContent || "").trim();
+            if (!titulo) continue;
 
-            const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
-            const titulo = (tituloEl?.textContent || enlace.getAttribute("title") || enlace.textContent || "").trim();
-            const href = enlace.getAttribute("href");
-            if (!href || !titulo) continue;
+            const enlaceDirecto = tituloEl.closest("a[href]");
+            const contenedor = tituloEl.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film, .movie-overview");
+            const enlaceEnContenedor = contenedor?.querySelector("a[href]:not([href^='javascript'])");
+            const enlace = enlaceDirecto || enlaceEnContenedor;
+            const href = enlace?.getAttribute("href") || "";
 
             resultados.push({ titulo, href });
           }
@@ -206,20 +216,20 @@ def extraer_enlaces_peliculas_desde_cartelera(page):
     for pelicula in peliculas:
         titulo = normalizar_texto(str(pelicula.get("titulo", "")))
         href = str(pelicula.get("href", "")).strip()
-        if not titulo or not href:
+        if not titulo:
             continue
 
         clave = normalizar_clave_pelicula(titulo)
         if clave not in peliculas_unicas:
             peliculas_unicas[clave] = {
                 "titulo": titulo,
-                "url": urljoin(URL, href),
+                "url": urljoin(URL, href) if href else "",
             }
 
     return peliculas_unicas
 
 
-def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_duraciones):
+def rellenar_cache_duraciones_desde_fichas(context, peliculas_cartelera, cache_duraciones):
     nuevos_registros = 0
     page_detalle = context.new_page()
 
@@ -229,6 +239,9 @@ def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_
                 continue
 
             url_detalle = datos["url"]
+            if not url_detalle:
+                continue
+
             try:
                 page_detalle.goto(url_detalle, wait_until="domcontentloaded", timeout=15000)
             except Exception:
@@ -510,8 +523,9 @@ with sync_playwright() as p:
     page.mouse.wheel(0, 3000)
 
     page.wait_for_selector("[data-vsessionid]", timeout=20000)
-    peliculas_cartelera = extraer_enlaces_peliculas_desde_cartelera(page)
-    nuevas_duraciones = rellenar_cache_duraciones_desde_enlaces(
+    peliculas_cartelera = extraer_peliculas_desde_cartelera(page)
+    print("Películas detectadas en cartelera:", len(peliculas_cartelera))
+    nuevas_duraciones = rellenar_cache_duraciones_desde_fichas(
         context,
         peliculas_cartelera,
         cache_duraciones,
