@@ -319,10 +319,23 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
             const vsessionid = sesion.getAttribute("data-vsessionid");
             const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
             const scope = card || sesion.parentElement || sesion;
-            const enlace = scope.querySelector("a[href]:not([href^='javascript'])");
+            const enlaceTitulo =
+              scope.querySelector("h1 a[href]:not([href^='javascript'])") ||
+              scope.querySelector("h2 a[href]:not([href^='javascript'])") ||
+              scope.querySelector("h3 a[href]:not([href^='javascript'])") ||
+              scope.querySelector("h4 a[href]:not([href^='javascript'])") ||
+              scope.querySelector(".movie-title a[href]:not([href^='javascript'])") ||
+              scope.querySelector(".title a[href]:not([href^='javascript'])") ||
+              scope.querySelector("a.movie-title[href]:not([href^='javascript'])") ||
+              scope.querySelector("a.title[href]:not([href^='javascript'])");
             const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
-            const titulo = (tituloEl?.textContent || enlace?.getAttribute("title") || enlace?.textContent || "").trim();
-            const href = enlace?.getAttribute("href") || "";
+            const titulo = (
+              tituloEl?.textContent ||
+              enlaceTitulo?.getAttribute("title") ||
+              enlaceTitulo?.textContent ||
+              ""
+            ).trim();
+            const href = enlaceTitulo?.getAttribute("href") || "";
 
             resultados.push({
               hora: textoHora,
@@ -538,22 +551,25 @@ def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada):
             timeout=10000
         )
 
-        titulo = titulo_cartelera or "Desconocido"
+        titulo = titulo_cartelera
 
         titulo_element = page.locator("h2.order-title")
 
-        if titulo_element.count() > 0:
+        if not titulo and titulo_element.count() > 0:
             titulo = titulo_element.first.inner_text().strip()
+
+        if not titulo:
+            titulo = "Desconocido"
 
         fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
 
-        clave_pelicula = normalizar_clave_pelicula(titulo)
+        clave_pelicula = normalizar_clave_pelicula(titulo_cartelera or titulo)
         duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
 
         if not duracion_minutos:
             duracion_minutos = obtener_duracion_desde_ficha(
                 context,
-                titulo,
+                titulo_cartelera or titulo,
                 url_detalle,
                 cache_duraciones,
                 cache_modificada,
