@@ -13,6 +13,7 @@ from playwright.sync_api import sync_playwright
 URL = "https://kinepolis.es/?complex=KVAL&main_section=hoy"
 
 MAX_PAGES = 12
+DEBUG_DURACION = os.getenv("DEBUG_DURACION", "0").strip().lower() in {"1", "true", "yes", "si"}
 
 patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
 patron_fecha_iso = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -148,6 +149,14 @@ def extraer_minutos_desde_texto(texto):
 
     match = re.search(r"(\d{2,3})\s*(?:min|mins|minutos)\b", texto, re.IGNORECASE)
     if not match:
+        match = re.search(r"\b(\d{1,2})\s*h(?:oras?)?\s*(\d{1,2})?\s*m?\b", texto, re.IGNORECASE)
+        if match:
+            horas = int(match.group(1))
+            minutos_extra = int(match.group(2) or 0)
+            total = horas * 60 + minutos_extra
+            return total if total > 0 else None
+
+    if not match:
         return None
 
     minutos = int(match.group(1))
@@ -166,16 +175,62 @@ def sumar_minutos_a_hora(hora, minutos):
     return (inicio + timedelta(minutes=minutos)).strftime("%H:%M")
 
 
-def extraer_duracion_desde_detalle(page):
-    selector_duracion = page.locator("div.movie-duration-wrapper")
+def debug_duracion(mensaje):
+    if DEBUG_DURACION:
+        print(f"[DEBUG DURACION] {mensaje}")
 
-    if selector_duracion.count() > 0:
-        texto_duracion = normalizar_texto(selector_duracion.first.inner_text())
-        minutos = extraer_minutos_desde_texto(texto_duracion)
-        if minutos:
-            return minutos
 
-    return None
+def extraer_duracion_desde_detalle(page, contexto="detalle"):
+    selectores_duracion = [
+        "div.movie-duration-wrapper",
+        "[class*='duration']",
+        "[class*='runtime']",
+        "[data-testid*='duration']",
+        "[data-testid*='runtime']",
+        "time",
+    ]
+
+    debug_duracion(f"Contexto: {contexto} | URL: {page.url}")
+
+    for selector in selectores_duracion:
+        locator = page.locator(selector)
+        try:
+            total = locator.count()
+        except Exception as exc:
+            debug_duracion(f"Selector {selector!r} fallo al contar: {exc}")
+            continue
+
+        debug_duracion(f"Selector {selector!r} -> {total} coincidencias")
+
+        if total == 0:
+            continue
+
+        limite = min(total, 3)
+        for i in range(limite):
+            try:
+                texto_duracion = normalizar_texto(locator.nth(i).inner_text())
+            except Exception as exc:
+                debug_duracion(f"Selector {selector!r}[{i}] fallo al leer texto: {exc}")
+                continue
+
+            minutos = extraer_minutos_desde_texto(texto_duracion)
+            debug_duracion(
+                f"Selector {selector!r}[{i}] texto={texto_duracion!r} -> minutos={minutos}"
+            )
+            if minutos:
+                return minutos
+
+    try:
+        texto_pagina = normalizar_texto(page.locator("body").inner_text())
+    except Exception as exc:
+        debug_duracion(f"No se pudo leer el texto del body: {exc}")
+        return None
+
+    minutos = extraer_minutos_desde_texto(texto_pagina)
+    debug_duracion(
+        f"Fallback body -> minutos={minutos} | muestra={texto_pagina[:400]!r}"
+    )
+    return minutos
 
 
 def extraer_enlaces_peliculas_desde_cartelera(page):
@@ -219,6 +274,90 @@ def extraer_enlaces_peliculas_desde_cartelera(page):
     return peliculas_unicas
 
 
+def obtener_duracion_desde_ficha(context, titulo, url_detalle, cache_duraciones, cache_modificada):
+    clave = normalizar_clave_pelicula(titulo)
+    duracion_cache = cache_duraciones.get(clave, 0)
+
+    if duracion_cache:
+        debug_duracion(f"Cache hit para {titulo!r}: {duracion_cache} min")
+        return duracion_cache
+
+    if not url_detalle:
+        debug_duracion(f"Sin URL de detalle para {titulo!r}")
+        return 0
+
+    page_detalle = context.new_page()
+
+    try:
+        debug_duracion(f"Abriendo ficha para {titulo!r}: {url_detalle}")
+        page_detalle.goto(url_detalle, wait_until="domcontentloaded", timeout=15000)
+        minutos = extraer_duracion_desde_detalle(page_detalle, contexto="ficha")
+        if minutos:
+            cache_duraciones[clave] = minutos
+            cache_modificada["valor"] = True
+            print(f"DuraciÃ³n guardada: {titulo} -> {minutos} min")
+            return minutos
+
+        debug_duracion(f"No se encontrÃ³ duraciÃ³n en la ficha de {titulo!r}")
+        return 0
+    except Exception as exc:
+        debug_duracion(f"Fallo abriendo ficha de {titulo!r}: {exc}")
+        return 0
+    finally:
+        page_detalle.close()
+
+
+def extraer_sesiones_desde_cartelera(page, fecha_referencia):
+    sesiones = page.evaluate(
+        """
+        () => {
+          const resultados = [];
+          const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
+
+          for (const sesion of sesiones) {
+            const textoHora = (sesion.textContent || "").trim();
+            const vsessionid = sesion.getAttribute("data-vsessionid");
+            const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
+            const scope = card || sesion.parentElement || sesion;
+            const enlace = scope.querySelector("a[href]:not([href^='javascript'])");
+            const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
+            const titulo = (tituloEl?.textContent || enlace?.getAttribute("title") || enlace?.textContent || "").trim();
+            const href = enlace?.getAttribute("href") || "";
+
+            resultados.push({
+              hora: textoHora,
+              vsessionid,
+              titulo,
+              href,
+            });
+          }
+
+          return resultados;
+        }
+        """
+    )
+
+    sesiones_limpias = []
+    for sesion in sesiones:
+        hora = normalizar_texto(str(sesion.get("hora", "")))
+        vsessionid = str(sesion.get("vsessionid", "")).strip()
+        titulo = normalizar_texto(str(sesion.get("titulo", "")))
+        href = str(sesion.get("href", "")).strip()
+
+        if not vsessionid or not patron_hora.match(hora):
+            continue
+
+        sesiones_limpias.append({
+            "hora": hora,
+            "vsessionid": vsessionid,
+            "fecha_referencia": fecha_referencia,
+            "titulo": titulo,
+            "url_detalle": urljoin(URL, href) if href else "",
+        })
+
+    return sesiones_limpias
+
+
 def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_duraciones):
     nuevos_registros = 0
     page_detalle = context.new_page()
@@ -234,7 +373,7 @@ def rellenar_cache_duraciones_desde_enlaces(context, peliculas_cartelera, cache_
             except Exception:
                 continue
 
-            minutos = extraer_duracion_desde_detalle(page_detalle)
+            minutos = extraer_duracion_desde_detalle(page_detalle, contexto="cartelera")
             if minutos:
                 cache_duraciones[clave] = minutos
                 nuevos_registros += 1
@@ -349,11 +488,13 @@ def extraer_detalles_sesion(page, fecha_referencia):
     return fecha_sesion, sala
 
 
-def analizar_sesion(page, sesion, cache_duraciones, cache_modificada):
+def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada):
 
     hora = sesion["hora"]
     vsessionid = sesion["vsessionid"]
     fecha_referencia = sesion["fecha_referencia"]
+    titulo_cartelera = normalizar_texto(sesion.get("titulo", ""))
+    url_detalle = sesion.get("url_detalle", "")
 
     try:
 
@@ -397,7 +538,7 @@ def analizar_sesion(page, sesion, cache_duraciones, cache_modificada):
             timeout=10000
         )
 
-        titulo = "Desconocido"
+        titulo = titulo_cartelera or "Desconocido"
 
         titulo_element = page.locator("h2.order-title")
 
@@ -410,11 +551,13 @@ def analizar_sesion(page, sesion, cache_duraciones, cache_modificada):
         duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
 
         if not duracion_minutos:
-            duracion_encontrada = extraer_duracion_desde_detalle(page)
-            if duracion_encontrada:
-                cache_duraciones[clave_pelicula] = duracion_encontrada
-                cache_modificada["valor"] = True
-                duracion_minutos = duracion_encontrada
+            duracion_minutos = obtener_duracion_desde_ficha(
+                context,
+                titulo,
+                url_detalle,
+                cache_duraciones,
+                cache_modificada,
+            )
 
         hora_fin = sumar_minutos_a_hora(hora, int(duracion_minutos) if duracion_minutos else 0)
 
