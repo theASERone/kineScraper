@@ -5,11 +5,15 @@ from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+# ======================
+# CONFIGURACI”N
+# ======================
+
 st.set_page_config(layout="wide")
 
 st_autorefresh(interval=10000, key="datarefresh")
 
-st.title("üé¨ Ocupaci√≥n Kinepolis")
+st.title("?? OcupaciÛn Kinepolis")
 
 # ======================
 # CARGAR DATOS
@@ -19,41 +23,126 @@ df = pd.read_csv("ocupacion_kinepolis.csv")
 
 with open("metadata.json", "r", encoding="utf-8") as f:
     metadata = json.load(f)
-    
-    # convertir hora a Madrid
-    inicio_utc = datetime.strptime(metadata["inicio_informe"], "%Y-%m-%d %H:%M:%S")
-
-    inicio_madrid = inicio_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(
-        ZoneInfo("Europe/Madrid")
-    )
-
-    inicio_formateado = inicio_madrid.strftime("%d/%m/%Y %H:%M:%S")
 
 # ======================
-# M√âTRICAS
+# FORMATEAR HORA MADRID
 # ======================
 
-col1, col2, col3, col4 = st.columns(4)
+inicio_utc = datetime.strptime(metadata["inicio_informe"], "%Y-%m-%d %H:%M:%S")
+
+inicio_madrid = inicio_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(
+    ZoneInfo("Europe/Madrid")
+)
+
+inicio_formateado = inicio_madrid.strftime("%d/%m/%Y %H:%M:%S")
+
+# ======================
+# PREPARAR DATOS
+# ======================
+
+df["fecha_hora"] = df["fecha"] + " " + df["hora"]
+
+df["ocupacion_pct"] = (df["ocupadas"] / df["total"]) * 100
+
+df = df.sort_values(["fecha", "hora"])
+
+# ======================
+# PANEL M…TRICAS
+# ======================
+
+st.subheader("?? Indicadores")
+
+col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric("Inicio informe", inicio_formateado)
-col2.metric("Duraci√≥n (s)", metadata["duracion_segundos"])
-col3.metric("Sesiones", metadata["sesiones_analizadas"])
-col4.metric("Pel√≠culas", df["pelicula"].nunique())
+
+col2.metric(
+    "DuraciÛn scrape (s)",
+    metadata["duracion_segundos"]
+)
+
+col3.metric(
+    "PelÌculas",
+    df["pelicula"].nunique()
+)
+
+col4.metric(
+    "Sesiones",
+    len(df)
+)
+
+col5.metric(
+    "Butacas ocupadas",
+    int(df["ocupadas"].sum())
+)
 
 # ======================
-# TABLA
+# RANKING SESIONES
 # ======================
 
-st.subheader("Datos por sesi√≥n")
+st.subheader("?? Sesiones con mayor ocupaciÛn")
+
+top_sesiones = df.sort_values(
+    "ocupacion_pct",
+    ascending=False
+).head(10)
+
+st.dataframe(
+    top_sesiones[
+        [
+            "pelicula",
+            "fecha",
+            "hora",
+            "ocupadas",
+            "total",
+            "ocupacion_pct"
+        ]
+    ]
+)
+
+# ======================
+# DEMANDA POR HORA
+# ======================
+
+st.subheader("?? Demanda por horario")
+
+demanda = df.groupby("hora")["ocupadas"].sum().reset_index()
+
+st.bar_chart(
+    demanda.set_index("hora")
+)
+
+# ======================
+# HEATMAP PELÕCULA / HORA
+# ======================
+
+st.subheader("?? OcupaciÛn por pelÌcula y horario")
+
+pivot = df.pivot_table(
+    index="pelicula",
+    columns="hora",
+    values="ocupacion_pct",
+    aggfunc="mean"
+)
+
+st.dataframe(
+    pivot.style.background_gradient(cmap="Reds")
+)
+
+# ======================
+# EVOLUCI”N OCUPACI”N
+# ======================
+
+st.subheader("?? EvoluciÛn de ocupaciÛn")
+
+evolucion = df.groupby("fecha_hora")["ocupadas"].sum()
+
+st.line_chart(evolucion)
+
+# ======================
+# TABLA COMPLETA
+# ======================
+
+st.subheader("?? Datos completos")
 
 st.dataframe(df)
-
-# ======================
-# GR√ÅFICO
-# ======================
-
-resumen = df.groupby("hora")[["ocupadas","total"]].sum().reset_index()
-
-st.subheader("Butacas ocupadas por hora")
-
-st.bar_chart(resumen.set_index("hora")["ocupadas"])
