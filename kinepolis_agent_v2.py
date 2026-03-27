@@ -314,21 +314,60 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
           const resultados = [];
           const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
 
+          const buscarEnlaceDetalle = (scope, sesion) => {
+            const candidatos = [
+              scope.querySelector(".title-bar-wrapper .title a[href]:not([href^='javascript'])"),
+              scope.querySelector(".title-wrapper .title a[href]:not([href^='javascript'])"),
+              scope.querySelector(".movie-overview-title")?.closest("a[href]:not([href^='javascript'])"),
+              scope.querySelector("h1 a[href]:not([href^='javascript'])"),
+              scope.querySelector("h2 a[href]:not([href^='javascript'])"),
+              scope.querySelector("h3 a[href]:not([href^='javascript'])"),
+              scope.querySelector("h4 a[href]:not([href^='javascript'])"),
+              scope.querySelector(".movie-title a[href]:not([href^='javascript'])"),
+              scope.querySelector(".title a[href]:not([href^='javascript'])"),
+              scope.querySelector("a.movie-title[href]:not([href^='javascript'])"),
+              scope.querySelector("a.title[href]:not([href^='javascript'])"),
+              scope.querySelector("a[href*='/films/']:not([href^='javascript'])"),
+              scope.querySelector("a[href*='/peliculas/']:not([href^='javascript'])"),
+              scope.querySelector("a[href*='/movie/']:not([href^='javascript'])"),
+            ].filter(Boolean);
+
+            if (candidatos.length > 0) return candidatos[0];
+
+            const cardLinks = Array.from(scope.querySelectorAll("a[href]:not([href^='javascript'])"));
+            const enlacesNoSesion = cardLinks.filter((a) => !a.closest("[data-vsessionid]"));
+            if (enlacesNoSesion.length > 0) return enlacesNoSesion[0];
+
+            const hermanos = Array.from((scope.parentElement || document).querySelectorAll("a[href]:not([href^='javascript'])"));
+            const enlaceCercano = hermanos.find((a) => {
+              if (a.closest("[data-vsessionid]")) return false;
+              const texto = (a.textContent || a.getAttribute("title") || "").trim();
+              return texto.length > 0;
+            });
+            if (enlaceCercano) return enlaceCercano;
+
+            let nodo = sesion.previousElementSibling;
+            while (nodo) {
+              const link = nodo.matches?.("a[href]:not([href^='javascript'])")
+                ? nodo
+                : nodo.querySelector?.("a[href]:not([href^='javascript'])");
+              if (link) return link;
+              nodo = nodo.previousElementSibling;
+            }
+
+            return null;
+          };
+
           for (const sesion of sesiones) {
             const textoHora = (sesion.textContent || "").trim();
             const vsessionid = sesion.getAttribute("data-vsessionid");
             const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
             const scope = card || sesion.parentElement || sesion;
-            const enlaceTitulo =
-              scope.querySelector("h1 a[href]:not([href^='javascript'])") ||
-              scope.querySelector("h2 a[href]:not([href^='javascript'])") ||
-              scope.querySelector("h3 a[href]:not([href^='javascript'])") ||
-              scope.querySelector("h4 a[href]:not([href^='javascript'])") ||
-              scope.querySelector(".movie-title a[href]:not([href^='javascript'])") ||
-              scope.querySelector(".title a[href]:not([href^='javascript'])") ||
-              scope.querySelector("a.movie-title[href]:not([href^='javascript'])") ||
-              scope.querySelector("a.title[href]:not([href^='javascript'])");
-            const tituloEl = scope.querySelector("h1, h2, h3, h4, .movie-title, .title");
+            const enlaceTitulo = buscarEnlaceDetalle(scope, sesion);
+            const tituloEl =
+              scope.querySelector(".movie-overview-title") ||
+              scope.querySelector(".title") ||
+              scope.querySelector("h1, h2, h3, h4, .movie-title");
             const titulo = (
               tituloEl?.textContent ||
               enlaceTitulo?.getAttribute("title") ||
