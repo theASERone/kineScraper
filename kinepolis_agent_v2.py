@@ -314,7 +314,29 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
           const resultados = [];
           const sesiones = Array.from(document.querySelectorAll("[data-vsessionid]"));
 
-          const buscarEnlaceDetalle = (scope, sesion) => {
+          const selectoresTitulo = [
+            ".title-bar-wrapper .title a[href]:not([href^='javascript'])",
+            ".title-wrapper .title a[href]:not([href^='javascript'])",
+            ".movie-overview-title",
+            "h1 a[href]:not([href^='javascript'])",
+            "h2 a[href]:not([href^='javascript'])",
+            "h3 a[href]:not([href^='javascript'])",
+            "h4 a[href]:not([href^='javascript'])",
+          ];
+
+          const buscarContenedorPelicula = (sesion) => {
+            let nodo = sesion;
+
+            while (nodo && nodo !== document.body) {
+              const tieneTitulo = selectoresTitulo.some((selector) => nodo.querySelector?.(selector));
+              if (tieneTitulo) return nodo;
+              nodo = nodo.parentElement;
+            }
+
+            return sesion.parentElement || sesion;
+          };
+
+          const buscarEnlaceDetalle = (scope) => {
             const candidatos = [
               scope.querySelector(".title-bar-wrapper .title a[href]:not([href^='javascript'])"),
               scope.querySelector(".title-wrapper .title a[href]:not([href^='javascript'])"),
@@ -334,39 +356,18 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
 
             if (candidatos.length > 0) return candidatos[0];
 
-            const cardLinks = Array.from(scope.querySelectorAll("a[href]:not([href^='javascript'])"));
-            const enlacesNoSesion = cardLinks.filter((a) => !a.closest("[data-vsessionid]"));
-            if (enlacesNoSesion.length > 0) return enlacesNoSesion[0];
-
-            const hermanos = Array.from((scope.parentElement || document).querySelectorAll("a[href]:not([href^='javascript'])"));
-            const enlaceCercano = hermanos.find((a) => {
-              if (a.closest("[data-vsessionid]")) return false;
-              const texto = (a.textContent || a.getAttribute("title") || "").trim();
-              return texto.length > 0;
-            });
-            if (enlaceCercano) return enlaceCercano;
-
-            let nodo = sesion.previousElementSibling;
-            while (nodo) {
-              const link = nodo.matches?.("a[href]:not([href^='javascript'])")
-                ? nodo
-                : nodo.querySelector?.("a[href]:not([href^='javascript'])");
-              if (link) return link;
-              nodo = nodo.previousElementSibling;
-            }
-
             return null;
           };
 
           for (const sesion of sesiones) {
             const textoHora = (sesion.textContent || "").trim();
             const vsessionid = sesion.getAttribute("data-vsessionid");
-            const card = sesion.closest("article, li, .movie, .movie-item, .session, .grid-item, .agenda-film, .showtimes-film");
-            const scope = card || sesion.parentElement || sesion;
-            const enlaceTitulo = buscarEnlaceDetalle(scope, sesion);
+            const scope = buscarContenedorPelicula(sesion);
+            const enlaceTitulo = buscarEnlaceDetalle(scope);
             const tituloEl =
               scope.querySelector(".movie-overview-title") ||
-              scope.querySelector(".title") ||
+              scope.querySelector(".title-bar-wrapper .title") ||
+              scope.querySelector(".title-wrapper .title") ||
               scope.querySelector("h1, h2, h3, h4, .movie-title");
             const titulo = (
               tituloEl?.textContent ||
@@ -375,6 +376,10 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
               ""
             ).trim();
             const href = enlaceTitulo?.getAttribute("href") || "";
+
+            if (href === "#" || href === "#!") {
+              continue;
+            }
 
             resultados.push({
               hora: textoHora,
@@ -399,12 +404,19 @@ def extraer_sesiones_desde_cartelera(page, fecha_referencia):
         if not vsessionid or not patron_hora.match(hora):
             continue
 
+        url_detalle = urljoin(URL, href) if href else ""
+        if DEBUG_DURACION and (not titulo or not url_detalle):
+            print(
+                f"[DEBUG DURACION] Sesion sin detalle completo | hora={hora!r} | "
+                f"titulo={titulo!r} | href={href!r}"
+            )
+
         sesiones_limpias.append({
             "hora": hora,
             "vsessionid": vsessionid,
             "fecha_referencia": fecha_referencia,
             "titulo": titulo,
-            "url_detalle": urljoin(URL, href) if href else "",
+            "url_detalle": url_detalle,
         })
 
     return sesiones_limpias
