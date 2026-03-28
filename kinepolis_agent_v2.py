@@ -88,6 +88,71 @@ def cargar_csv_existente(ruta_csv):
 
     return asegurar_columnas_resultado(df_existente)
 
+
+def normalizar_clave_sala(sala):
+    return normalizar_texto(str(sala)).strip().upper()
+
+
+def construir_totales_por_sala(df):
+    totales_por_sala = {}
+
+    if df is None or df.empty or "sala" not in df.columns or "total" not in df.columns:
+        return totales_por_sala
+
+    for _, fila in df.iterrows():
+        sala = normalizar_clave_sala(fila.get("sala", ""))
+
+        if not sala:
+            continue
+
+        try:
+            total = int(float(fila.get("total", 0)))
+        except (TypeError, ValueError):
+            continue
+
+        if total > 0:
+            totales_por_sala[sala] = total
+
+    return totales_por_sala
+
+
+def registrar_total_sala(totales_por_sala, sala, total):
+    sala_normalizada = normalizar_clave_sala(sala)
+
+    if not sala_normalizada:
+        return
+
+    try:
+        total_normalizado = int(total)
+    except (TypeError, ValueError):
+        return
+
+    if total_normalizado > 0:
+        totales_por_sala[sala_normalizada] = total_normalizado
+
+
+def detectar_estado_venta(page, timeout_ms=8000, intervalo_ms=250):
+    ultimo_estado = {"selects_visibles": 0, "agotados_visibles": 0}
+    instante_limite = time.time() + (timeout_ms / 1000)
+
+    while time.time() < instante_limite:
+        try:
+            tickets_list = page.locator("div.tickets-list").first
+            ultimo_estado = {
+                "selects_visibles": tickets_list.locator("select:visible").count(),
+                "agotados_visibles": tickets_list.locator("text=/^agotado$/i").count(),
+            }
+        except Exception:
+            page.wait_for_timeout(intervalo_ms)
+            continue
+
+        if ultimo_estado["selects_visibles"] > 0 or ultimo_estado["agotados_visibles"] > 0:
+            return ultimo_estado
+
+        page.wait_for_timeout(intervalo_ms)
+
+    return ultimo_estado
+
 # ======================
 # TIEMPO DE INICIO
 # ======================
@@ -595,7 +660,7 @@ def extraer_detalles_sesion(page, fecha_referencia):
     return fecha_sesion, sala
 
 
-def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada):
+def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada, totales_por_sala):
 
     hora = sesion["hora"]
     vsessionid = sesion["vsessionid"]
@@ -609,9 +674,69 @@ def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada):
 
         page.goto(seat_url, wait_until="domcontentloaded")
 
-        page.wait_for_selector("select", timeout=8000)
+        titulo = titulo_cartelera
 
-        selects = page.locator("select")
+        titulo_element = page.locator("h2.order-title")
+
+        if not titulo and titulo_element.count() > 0:
+            titulo = titulo_element.first.inner_text().strip()
+
+        if not titulo:
+            titulo = "Desconocido"
+
+        fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
+        estado_venta = detectar_estado_venta(page)
+
+        clave_pelicula = normalizar_clave_pelicula(titulo_cartelera or titulo)
+        duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
+
+        if not duracion_minutos:
+            duracion_minutos = obtener_duracion_desde_ficha(
+                context,
+                titulo_cartelera or titulo,
+                url_detalle,
+                cache_duraciones,
+                cache_modificada,
+            )
+
+        hora_fin = sumar_minutos_a_hora(hora, int(duracion_minutos) if duracion_minutos else 0)
+
+        if estado_venta["selects_visibles"] == 0 and estado_venta["agotados_visibles"] > 0:
+            total = totales_por_sala.get(normalizar_clave_sala(sala), 0)
+            ocupadas = total
+            ocupacion = 100.0 if total else 0
+
+            print(
+                titulo,
+                "|",
+                fecha_sesion,
+                "|",
+                hora,
+                "->",
+                hora_fin or "N/D",
+                "| sala:",
+                sala or "N/D",
+                "| agotado | ocupadas:",
+                ocupadas,
+                "| ocupación:",
+                ocupacion,
+                "%"
+            )
+
+            return {
+                "fecha": fecha_sesion,
+                "pelicula": titulo,
+                "hora": hora,
+                "hora_fin": hora_fin,
+                "duracion_minutos": int(duracion_minutos) if duracion_minutos else 0,
+                "sala": sala,
+                "total": total,
+                "ocupadas": ocupadas,
+                "libres": 0,
+                "ocupacion": ocupacion
+            }
+
+        selects = page.locator("div.tickets-list").first.locator("select:visible")
 
         for i in range(selects.count()):
 
@@ -644,32 +769,6 @@ def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada):
             "label[data-seats-status]",
             timeout=10000
         )
-
-        titulo = titulo_cartelera
-
-        titulo_element = page.locator("h2.order-title")
-
-        if not titulo and titulo_element.count() > 0:
-            titulo = titulo_element.first.inner_text().strip()
-
-        if not titulo:
-            titulo = "Desconocido"
-
-        fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
-
-        clave_pelicula = normalizar_clave_pelicula(titulo_cartelera or titulo)
-        duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
-
-        if not duracion_minutos:
-            duracion_minutos = obtener_duracion_desde_ficha(
-                context,
-                titulo_cartelera or titulo,
-                url_detalle,
-                cache_duraciones,
-                cache_modificada,
-            )
-
-        hora_fin = sumar_minutos_a_hora(hora, int(duracion_minutos) if duracion_minutos else 0)
 
         ocupadas = page.locator(
             'label[data-seats-status="1"]'
@@ -745,6 +844,9 @@ with sync_playwright() as p:
     ruta_cache_duraciones = "duraciones_peliculas.json"
     cache_duraciones = cargar_cache_duraciones(ruta_cache_duraciones)
     cache_modificada = {"valor": False}
+    archivo = "ocupacion_kinepolis.csv"
+    df_existente = cargar_csv_existente(archivo)
+    totales_por_sala = construir_totales_por_sala(df_existente)
 
     page = context.new_page()
 
@@ -775,9 +877,17 @@ with sync_playwright() as p:
 
         for page_instance, sesion in zip(pages, lote):
 
-            r = analizar_sesion(page_instance, context, sesion, cache_duraciones, cache_modificada)
+            r = analizar_sesion(
+                page_instance,
+                context,
+                sesion,
+                cache_duraciones,
+                cache_modificada,
+                totales_por_sala,
+            )
 
             if r:
+                registrar_total_sala(totales_por_sala, r.get("sala", ""), r.get("total", 0))
                 resultados.append(r)
 
         for page_instance in pages:
@@ -848,11 +958,7 @@ for hora, datos in sorted(resumen_horas.items()):
 
     # writer.writeheader()
     # writer.writerows(resultados)
-archivo = "ocupacion_kinepolis.csv"
-
 df_nuevo = asegurar_columnas_resultado(pd.DataFrame(resultados))
-
-df_existente = cargar_csv_existente(archivo)
 
 df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
 
