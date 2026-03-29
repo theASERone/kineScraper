@@ -1,6 +1,7 @@
 {
-    "inicio_informe": "2026-03-29 19:40:22",
-    "fin_informe": "2026-03-29 19:49:31",
-    "duracion_segundos": 548.39,
-    "sesiones_analizadas": 7
+    "inicio_informe": "2026-03-29T22:21:41.949549+02:00",
+    "fin_informe": "2026-03-29T22:31:29.244332+02:00",
+    "duracion_segundos": 587.29,
+    "sesiones_analizadas": 0,
+    "fecha_objetivo": "2026-03-29"
 }
