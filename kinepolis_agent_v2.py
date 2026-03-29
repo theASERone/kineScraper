@@ -662,6 +662,16 @@ def extraer_sala_desde_texto(texto):
     return ""
 
 
+def extraer_hora_desde_texto(texto):
+    texto_normalizado = normalizar_texto(texto)
+    match_hora = patron_hora.search(texto_normalizado)
+
+    if match_hora:
+        return match_hora.group(0)
+
+    return ""
+
+
 def extraer_sala_desde_order_list(page):
     items = page.locator("div.order-list-item")
 
@@ -698,17 +708,51 @@ def extraer_sala_desde_order_list(page):
     return ""
 
 
+def extraer_hora_desde_order_list(page):
+    items = page.locator("div.order-list-item")
+
+    for i in range(items.count()):
+        item = items.nth(i)
+        texto_item = normalizar_texto(item.inner_text())
+        texto_item_lower = texto_item.lower()
+
+        if "hora" not in texto_item_lower and "time" not in texto_item_lower:
+            continue
+
+        valores = item.locator("div.order-list-item-value")
+
+        for j in range(valores.count()):
+            valor = normalizar_texto(valores.nth(j).inner_text())
+            hora = extraer_hora_desde_texto(valor)
+
+            if hora:
+                return hora
+
+        hora = extraer_hora_desde_texto(texto_item)
+
+        if hora:
+            return hora
+
+    return ""
+
+
 def extraer_detalles_sesion(page, fecha_referencia):
     info_element = page.locator("div.order-additional-info")
+    texto_info = ""
 
     if info_element.count() == 0:
-        return fecha_referencia.strftime("%Y-%m-%d"), extraer_sala_desde_order_list(page)
+        fecha_sesion = fecha_referencia.strftime("%Y-%m-%d")
+    else:
+        texto_info = info_element.first.inner_text().strip()
+        fecha_sesion = extraer_fecha_desde_texto(texto_info, fecha_referencia)
 
-    texto_info = info_element.first.inner_text().strip()
-    fecha_sesion = extraer_fecha_desde_texto(texto_info, fecha_referencia)
     sala = extraer_sala_desde_order_list(page)
+    hora_sesion = extraer_hora_desde_order_list(page)
 
-    return fecha_sesion, sala
+    if not hora_sesion and texto_info:
+        hora_sesion = extraer_hora_desde_texto(texto_info)
+
+    return fecha_sesion, sala, hora_sesion
 
 
 def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada, totales_por_sala):
@@ -735,8 +779,11 @@ def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada, t
         if not titulo:
             titulo = "Desconocido"
 
-        fecha_sesion, sala = extraer_detalles_sesion(page, fecha_referencia)
+        fecha_sesion, sala, hora_sesion = extraer_detalles_sesion(page, fecha_referencia)
         estado_venta = detectar_estado_venta(page)
+
+        if hora_sesion:
+            hora = hora_sesion
 
         clave_pelicula = normalizar_clave_pelicula(titulo_cartelera or titulo)
         duracion_minutos = cache_duraciones.get(clave_pelicula, 0)
@@ -1015,6 +1062,15 @@ for hora, datos in sorted(resumen_horas.items()):
     # writer.writeheader()
     # writer.writerows(resultados)
 df_nuevo = asegurar_columnas_resultado(pd.DataFrame(resultados))
+
+fechas_actualizadas = {
+    str(fecha).strip()
+    for fecha in df_nuevo.get("fecha", pd.Series(dtype=str)).dropna().unique()
+    if str(fecha).strip()
+}
+
+if fechas_actualizadas and not df_existente.empty and "fecha" in df_existente.columns:
+    df_existente = df_existente[~df_existente["fecha"].astype(str).isin(fechas_actualizadas)]
 
 df_total = pd.concat([df_existente, df_nuevo], ignore_index=True)
 
