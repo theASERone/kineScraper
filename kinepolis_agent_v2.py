@@ -2,6 +2,7 @@ import os
 import json
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
@@ -153,6 +154,53 @@ def detectar_estado_venta(page, timeout_ms=8000, intervalo_ms=250):
 
     return ultimo_estado
 
+
+def obtener_fecha_objetivo():
+    args = sys.argv[1:]
+    fecha_argumento = ""
+
+    for i, arg in enumerate(args):
+        if arg == "--fecha" and i + 1 < len(args):
+            fecha_argumento = args[i + 1].strip()
+            break
+
+        if arg.startswith("--fecha="):
+            fecha_argumento = arg.split("=", 1)[1].strip()
+            break
+
+    if not fecha_argumento:
+        return None
+
+    try:
+        return datetime.strptime(fecha_argumento, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(
+            f"Fecha inválida {fecha_argumento!r}. Usa el formato YYYY-MM-DD."
+        ) from exc
+
+
+def seleccionar_fecha_cartelera(page, fecha_objetivo):
+    page.wait_for_selector("#dates_filter", timeout=10000)
+
+    valor_objetivo = fecha_objetivo.strftime("%Y-%m-%d")
+    opciones = page.locator("#dates_filter option")
+    valores_disponibles = []
+
+    for i in range(opciones.count()):
+        valor = opciones.nth(i).get_attribute("value") or ""
+        valor = valor.strip()
+        if valor:
+            valores_disponibles.append(valor)
+
+    if valor_objetivo not in valores_disponibles:
+        raise ValueError(
+            f"La fecha {valor_objetivo} no está disponible en el selector de cartelera."
+        )
+
+    page.locator("#dates_filter").select_option(valor_objetivo)
+    page.wait_for_timeout(1500)
+    page.wait_for_selector("[data-vsessionid]", timeout=20000)
+
 # ======================
 # TIEMPO DE INICIO
 # ======================
@@ -163,10 +211,13 @@ UTC_TZ = ZoneInfo("UTC")
 inicio_script = time.time()  # NUEVO
 hora_inicio = datetime.now(UTC_TZ) # NUEVO
 hora_referencia_madrid = hora_inicio.astimezone(MADRID_TZ)
+fecha_objetivo = obtener_fecha_objetivo()
+fecha_cartelera = fecha_objetivo or hora_referencia_madrid.date()
 
 print("\n==============================")
 print("INFORME KINEPOLIS")
 print("Inicio del informe:", hora_referencia_madrid.strftime("%Y-%m-%d %H:%M:%S"))
+print("Fecha objetivo:", fecha_cartelera.strftime("%Y-%m-%d"))
 print("==============================\n")
 
 
@@ -830,6 +881,7 @@ with sync_playwright() as p:
         viewport={"width": 1920, "height": 1080},
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         locale="es-ES",
+        timezone_id="Europe/Madrid",
     )
     context.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', {get: () => undefined})
@@ -861,10 +913,14 @@ with sync_playwright() as p:
     except:
         pass
 
+    seleccionar_fecha_cartelera(page, fecha_cartelera)
     page.wait_for_timeout(3000)
     page.mouse.wheel(0, 3000)
     page.wait_for_selector("[data-vsessionid]", timeout=20000)
-    sesiones = extraer_sesiones_desde_cartelera(page, hora_inicio)
+    sesiones = extraer_sesiones_desde_cartelera(
+        page,
+        datetime.combine(fecha_cartelera, datetime.min.time(), tzinfo=MADRID_TZ),
+    )
     # Duraciones: ahora se resuelven por sesion al abrir la ficha solo si faltan en cache.
 
     print("Sesiones encontradas:", len(sesiones))
@@ -981,10 +1037,10 @@ if not df_total.empty:
 
     df_total["fecha"] = pd.to_datetime(df_total["fecha"], errors="coerce")
 
-    limite = datetime.now() - timedelta(days=15)
+    limite = datetime.now(MADRID_TZ).date() - timedelta(days=15)
 
     df_total = df_total[df_total["fecha"].notna()]
-    df_total = df_total[df_total["fecha"] >= limite]
+    df_total = df_total[df_total["fecha"].dt.date >= limite]
 
     df_total["fecha"] = df_total["fecha"].dt.strftime("%Y-%m-%d")
 
@@ -1012,7 +1068,7 @@ fin_script = time.time()  # NUEVO
 duracion = round(fin_script - inicio_script, 2)
 
 print("\n==============================")
-print("Informe generado:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+print("Informe generado:", datetime.now(MADRID_TZ).strftime("%Y-%m-%d %H:%M:%S"))
 print("Tiempo total de ejecución:", duracion, "segundos")
 print("==============================")
 
@@ -1022,15 +1078,16 @@ print("==============================")
 
 fin_script = time.time()
 
-hora_fin = datetime.now()
+hora_fin = datetime.now(MADRID_TZ)
 
 duracion = round(fin_script - inicio_script, 2)
 
 metadata = {
-    "inicio_informe": hora_inicio.strftime("%Y-%m-%d %H:%M:%S"),
-    "fin_informe": hora_fin.strftime("%Y-%m-%d %H:%M:%S"),
+    "inicio_informe": hora_referencia_madrid.isoformat(),
+    "fin_informe": hora_fin.isoformat(),
     "duracion_segundos": duracion,
-    "sesiones_analizadas": len(resultados)
+    "sesiones_analizadas": len(resultados),
+    "fecha_objetivo": fecha_cartelera.strftime("%Y-%m-%d"),
 }
 
 with open("metadata.json", "w", encoding="utf-8") as f:
