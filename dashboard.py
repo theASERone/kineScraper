@@ -15,7 +15,7 @@ st.set_page_config(layout="wide")
 
 st_autorefresh(interval=10000, key="datarefresh")
 
-st.title("?? Ocupación Kinepolis")
+st.title("🎬​ Ocupación Kinepolis")
 
 # ======================
 # CARGAR DATOS
@@ -134,7 +134,7 @@ def formatear_fecha(fecha_iso: str) -> str:
 
 
 fecha_seleccionada = st.selectbox(
-    "?? Selecciona el día",
+    "📆 Selecciona el día",
     options=opciones_fecha,
     index=0,
     format_func=formatear_fecha,
@@ -155,7 +155,7 @@ st.caption(f"Datos capturados por última vez: {inicio_formateado} (hora de Madr
 # DEMANDA POR HORA
 # ======================
 
-st.subheader("?? Demanda por horario")
+st.subheader("📊​​ Demanda por horario")
 
 modo_duracion = st.selectbox(
     "Mostrar duración en la gráfica",
@@ -234,7 +234,7 @@ st.plotly_chart(fig_demanda, use_container_width=True, config={"scrollZoom": Fal
 # TOP SESIONES
 # ======================
 
-st.subheader("?? Sesiones con mayor ocupación")
+st.subheader("🔥 Sesiones con mayor ocupación")
 
 top_sesiones = df_filtrado.assign(
     fecha=df_filtrado["fecha_dashboard"],
@@ -262,7 +262,7 @@ st.dataframe(
 # TABLA COMPLETA
 # ======================
 
-st.subheader("?? Datos completos")
+st.subheader("📈 Datos completos")
 
 tabla_completa = df_filtrado.assign(
     fecha=df_filtrado["fecha_dashboard"],
@@ -287,7 +287,7 @@ st.dataframe(tabla_completa)
 # PANEL MÉTRICAS
 # ======================
 
-st.subheader("?? Indicadores")
+st.subheader("⏰​Indicadores")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
