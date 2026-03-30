@@ -23,7 +23,7 @@ patron_sala = re.compile(
     r"\b(?:sala|screen|auditorium|hall|room)\s*[:\-#]?\s*([A-Za-z0-9]+)\b",
     re.IGNORECASE,
 )
-patron_codigo_sala = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?$")
+patron_codigo_sala = re.compile(r"^(?=.*\d)[A-Za-z]?\d{1,3}[A-Za-z]?$")
 
 MESES_ES = {
     "ene": 1,
@@ -794,7 +794,9 @@ def extraer_sala_desde_texto(texto):
     match_sala = patron_sala.search(texto_normalizado)
 
     if match_sala:
-        return match_sala.group(1).upper()
+        sala = match_sala.group(1).upper()
+        if patron_codigo_sala.fullmatch(sala):
+            return sala
 
     return ""
 
