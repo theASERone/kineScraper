@@ -177,6 +177,32 @@ def esperar_sesiones_cartelera(page, timeout=20000):
         ) from exc
 
 
+def cartelera_tiene_sesiones(page):
+    try:
+        return page.locator("[data-vsessionid]").count() > 0
+    except Exception:
+        return False
+
+
+def obtener_fecha_seleccionada_cartelera(page, fecha_referencia):
+    try:
+        opcion_seleccionada = page.locator("#dates_filter option:checked").first
+        if opcion_seleccionada.count() > 0:
+            valor = (opcion_seleccionada.get_attribute("value") or "").strip()
+            if patron_fecha_iso.fullmatch(valor):
+                return valor
+
+            etiqueta = normalizar_texto(opcion_seleccionada.inner_text())
+            if etiqueta:
+                fecha_etiqueta = extraer_fecha_desde_texto(etiqueta, fecha_referencia)
+                if fecha_etiqueta:
+                    return fecha_etiqueta
+    except Exception:
+        pass
+
+    return ""
+
+
 def obtener_fecha_objetivo():
     args = sys.argv[1:]
     fecha_argumento = ""
@@ -1028,6 +1054,13 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
         page.wait_for_selector("#dates_filter", timeout=10000)
     except Exception:
         page.wait_for_selector("li.opt, [class*='dates'] li, [class*='date'] li", timeout=10000)
+
+    fecha_actual = obtener_fecha_seleccionada_cartelera(page, fecha_referencia)
+    if fecha_actual == valor_objetivo and cartelera_tiene_sesiones(page):
+        return
+
+    if fecha_objetivo == fecha_referencia and cartelera_tiene_sesiones(page):
+        return
 
     opciones = page.locator("#dates_filter option")
 
