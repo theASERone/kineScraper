@@ -715,17 +715,22 @@ def extraer_detalles_sesion(page, fecha_referencia):
 
 
 def extraer_fecha_desde_texto(texto, fecha_referencia):
+    if isinstance(fecha_referencia, datetime):
+        fecha_base = fecha_referencia.date()
+    else:
+        fecha_base = fecha_referencia
+
     texto_normalizado = normalizar_texto(texto)
     texto_limpio = re.sub(r"[.,]", " ", texto_normalizado.lower())
 
     if "pasado manana" in texto_limpio or "pasado mañana" in texto_limpio:
-        return (fecha_referencia + timedelta(days=2)).strftime("%Y-%m-%d")
+        return (fecha_base + timedelta(days=2)).strftime("%Y-%m-%d")
 
     if "manana" in texto_limpio or "mañana" in texto_limpio:
-        return (fecha_referencia + timedelta(days=1)).strftime("%Y-%m-%d")
+        return (fecha_base + timedelta(days=1)).strftime("%Y-%m-%d")
 
     if "hoy" in texto_limpio:
-        return fecha_referencia.strftime("%Y-%m-%d")
+        return fecha_base.strftime("%Y-%m-%d")
 
     match_iso = patron_fecha_iso.search(texto_normalizado)
 
@@ -753,7 +758,7 @@ def extraer_fecha_desde_texto(texto, fecha_referencia):
             continue
 
         dia = int(token)
-        anio = fecha_referencia.year
+        anio = fecha_base.year
 
         if i + 2 < len(tokens) and tokens[i + 2].isdigit() and len(tokens[i + 2]) in {2, 4}:
             anio = int(tokens[i + 2])
@@ -762,12 +767,12 @@ def extraer_fecha_desde_texto(texto, fecha_referencia):
 
         fecha = datetime(anio, mes, dia)
 
-        if abs((fecha - fecha_referencia).days) > 330:
+        if abs((fecha.date() - fecha_base).days) > 330:
             fecha = datetime(anio + 1, mes, dia)
 
         return fecha.strftime("%Y-%m-%d")
 
-    return fecha_referencia.strftime("%Y-%m-%d")
+    return fecha_base.strftime("%Y-%m-%d")
 
 
 def extraer_codigo_sala_aislado(texto):
