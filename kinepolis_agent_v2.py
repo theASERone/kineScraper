@@ -799,6 +799,36 @@ def extraer_sala_desde_texto(texto):
     return ""
 
 
+def extraer_sala_desde_candidatos_texto(candidatos):
+    for texto in candidatos:
+        texto_normalizado = normalizar_texto(str(texto))
+
+        if not texto_normalizado:
+            continue
+
+        sala = extraer_sala_desde_texto(texto_normalizado)
+
+        if sala:
+            return sala
+
+        lineas = [linea.strip() for linea in texto_normalizado.splitlines() if linea.strip()]
+
+        for i, linea in enumerate(lineas):
+            if not any(palabra in linea.lower() for palabra in ("sala", "screen", "auditorium", "hall", "room")):
+                continue
+
+            codigo = extraer_codigo_sala_aislado(linea)
+            if codigo:
+                return codigo
+
+            if i + 1 < len(lineas):
+                codigo = extraer_codigo_sala_aislado(lineas[i + 1])
+                if codigo:
+                    return codigo
+
+    return ""
+
+
 def buscar_sala_en_contenedores(page, selectores_contenedor, exigir_pista=False):
     palabras_clave = ("sala", "screen", "auditorium", "hall", "room")
 
@@ -842,6 +872,66 @@ def buscar_sala_en_contenedores(page, selectores_contenedor, exigir_pista=False)
     return ""
 
 
+def recopilar_candidatos_sala_desde_dom(page):
+    try:
+        candidatos = page.evaluate(
+            """
+            () => {
+              const keywords = ["sala", "screen", "auditorium", "hall", "room"];
+              const out = [];
+              const seen = new Set();
+
+              const push = (value) => {
+                const text = (value || "").replace(/\\s+/g, " ").trim();
+                if (!text || seen.has(text)) return;
+                seen.add(text);
+                out.push(text);
+              };
+
+              const nodes = Array.from(document.querySelectorAll("*"));
+
+              for (const el of nodes) {
+                const attrs = el.getAttributeNames ? el.getAttributeNames() : [];
+                const attrDump = [];
+
+                for (const name of attrs) {
+                  const value = el.getAttribute(name) || "";
+                  const lowerName = name.toLowerCase();
+                  const lowerValue = value.toLowerCase();
+
+                  if (
+                    keywords.some((k) => lowerName.includes(k) || lowerValue.includes(k)) ||
+                    lowerName.startsWith("data-") ||
+                    lowerName.startsWith("aria-")
+                  ) {
+                    attrDump.push(`${name}=${value}`);
+                  }
+                }
+
+                const className = (el.className || "").toString().toLowerCase();
+                const text = (el.innerText || el.textContent || "").trim();
+                const relevant =
+                  keywords.some((k) => className.includes(k)) ||
+                  keywords.some((k) => text.toLowerCase().includes(k)) ||
+                  attrDump.length > 0;
+
+                if (!relevant) continue;
+
+                push(text);
+                for (const item of attrDump) push(item);
+              }
+
+              push(document.body ? document.body.innerText : "");
+              return out;
+            }
+            """
+        )
+    except Exception:
+        return []
+
+    return candidatos if isinstance(candidatos, list) else []
+
+
 def extraer_sala_desde_order_list(page):
     selectores_prioritarios = [
         "div.order-list-item",
@@ -866,6 +956,19 @@ def extraer_sala_desde_order_list(page):
     if sala:
         return sala
 
+    sala = extraer_sala_desde_candidatos_texto(recopilar_candidatos_sala_desde_dom(page))
+
+    if sala:
+        return sala
+
+    try:
+        sala = extraer_sala_desde_candidatos_texto([page.locator("body").inner_text()])
+    except Exception:
+        sala = ""
+
+    if sala:
+        return sala
+
     return ""
 
 
@@ -873,6 +976,7 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
     valor_objetivo = fecha_objetivo.strftime("%Y-%m-%d")
     fecha_referencia = datetime.now(MADRID_TZ).date()
     etiquetas_disponibles = []
+    fechas_disponibles = []
 
     try:
         page.wait_for_selector("#dates_filter", timeout=10000)
@@ -889,13 +993,18 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
         if etiqueta:
             etiquetas_disponibles.append(etiqueta)
 
+        if etiqueta:
+            fecha_etiqueta = extraer_fecha_desde_texto(etiqueta, fecha_referencia)
+            if fecha_etiqueta:
+                fechas_disponibles.append(fecha_etiqueta)
+
         if valor == valor_objetivo:
             page.locator("#dates_filter").select_option(valor)
             page.wait_for_timeout(1500)
             page.wait_for_selector("[data-vsessionid]", timeout=20000)
             return
 
-        if valor and extraer_fecha_desde_texto(etiqueta, fecha_referencia) == valor_objetivo:
+        if valor and fecha_etiqueta == valor_objetivo:
             page.locator("#dates_filter").select_option(valor)
             page.wait_for_timeout(1500)
             page.wait_for_selector("[data-vsessionid]", timeout=20000)
@@ -913,8 +1022,11 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
             continue
 
         etiquetas_disponibles.append(etiqueta)
+        fecha_etiqueta = extraer_fecha_desde_texto(etiqueta, fecha_referencia)
+        if fecha_etiqueta:
+            fechas_disponibles.append(fecha_etiqueta)
 
-        if extraer_fecha_desde_texto(etiqueta, fecha_referencia) != valor_objetivo:
+        if fecha_etiqueta != valor_objetivo:
             continue
 
         etiqueta_locator = candidato.locator("label")
@@ -925,9 +1037,17 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
         return
 
     etiquetas_disponibles = sorted(set(etiquetas_disponibles))
+    fechas_disponibles = sorted(set(fechas_disponibles))
     detalle = f" Opciones detectadas: {', '.join(etiquetas_disponibles)}." if etiquetas_disponibles else ""
+    sugerencia = ""
+
+    for fecha_disponible in fechas_disponibles:
+        if fecha_disponible[5:] == valor_objetivo[5:]:
+            sugerencia = f" Quizá querías {fecha_disponible}."
+            break
+
     raise ValueError(
-        f"La fecha {valor_objetivo} no estÃ¡ disponible en el selector de cartelera.{detalle}"
+        f"La fecha {valor_objetivo} no estÃ¡ disponible en el selector de cartelera.{sugerencia}{detalle}"
     )
 
 
