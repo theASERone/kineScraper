@@ -702,6 +702,11 @@ def extraer_sala_desde_order_list(page):
 
 
 def extraer_detalles_sesion(page, fecha_referencia):
+    try:
+        page.wait_for_selector("div.order-list-item-value, div.order-additional-info", timeout=5000)
+    except Exception:
+        pass
+
     info_element = page.locator("div.order-additional-info")
 
     if info_element.count() == 0:
@@ -935,6 +940,26 @@ def recopilar_candidatos_sala_desde_dom(page):
 
 
 def extraer_sala_desde_order_list(page):
+    selectores_directos = [
+        "div.order-list-item-value",
+        ".order-list .order-list-item-value",
+        ".order-list-item-value",
+    ]
+
+    for selector in selectores_directos:
+        valores = page.locator(selector)
+
+        for i in range(valores.count()):
+            valor = normalizar_texto(valores.nth(i).inner_text())
+
+            if not valor:
+                continue
+
+            sala = extraer_sala_desde_texto(valor)
+
+            if sala:
+                return sala
+
     selectores_prioritarios = [
         "div.order-list-item",
         "[class*='order-list-item']",
