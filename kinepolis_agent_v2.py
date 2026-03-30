@@ -158,6 +158,25 @@ def detectar_estado_venta(page, timeout_ms=8000, intervalo_ms=250):
     return ultimo_estado
 
 
+def esperar_sesiones_cartelera(page, timeout=20000):
+    try:
+        page.wait_for_function(
+            "() => document.querySelectorAll('[data-vsessionid]').length > 0",
+            timeout=timeout,
+        )
+        return
+    except Exception as exc:
+        try:
+            total_sesiones = page.locator("[data-vsessionid]").count()
+        except Exception:
+            total_sesiones = -1
+
+        raise TimeoutError(
+            f"No aparecieron sesiones en cartelera tras {timeout} ms. "
+            f"Sesiones detectadas en DOM: {total_sesiones}."
+        ) from exc
+
+
 def obtener_fecha_objetivo():
     args = sys.argv[1:]
     fecha_argumento = ""
@@ -202,7 +221,7 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
 
     page.locator("#dates_filter").select_option(valor_objetivo)
     page.wait_for_timeout(1500)
-    page.wait_for_selector("[data-vsessionid]", timeout=20000)
+    esperar_sesiones_cartelera(page, timeout=20000)
 
 # ======================
 # TIEMPO DE INICIO
@@ -1028,13 +1047,13 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
         if valor == valor_objetivo:
             page.locator("#dates_filter").select_option(valor)
             page.wait_for_timeout(1500)
-            page.wait_for_selector("[data-vsessionid]", timeout=20000)
+            esperar_sesiones_cartelera(page, timeout=20000)
             return
 
         if valor and fecha_etiqueta == valor_objetivo:
             page.locator("#dates_filter").select_option(valor)
             page.wait_for_timeout(1500)
-            page.wait_for_selector("[data-vsessionid]", timeout=20000)
+            esperar_sesiones_cartelera(page, timeout=20000)
             return
 
     candidatos_click = page.locator(
@@ -1060,7 +1079,7 @@ def seleccionar_fecha_cartelera(page, fecha_objetivo):
         objetivo_click = etiqueta_locator.first if etiqueta_locator.count() > 0 else candidato
         objetivo_click.click()
         page.wait_for_timeout(1500)
-        page.wait_for_selector("[data-vsessionid]", timeout=20000)
+        esperar_sesiones_cartelera(page, timeout=20000)
         return
 
     etiquetas_disponibles = sorted(set(etiquetas_disponibles))
@@ -1283,7 +1302,7 @@ with sync_playwright() as p:
     seleccionar_fecha_cartelera(page, fecha_cartelera)
     page.wait_for_timeout(3000)
     page.mouse.wheel(0, 3000)
-    page.wait_for_selector("[data-vsessionid]", timeout=20000)
+    esperar_sesiones_cartelera(page, timeout=20000)
     sesiones = extraer_sesiones_desde_cartelera(
         page,
         datetime.combine(fecha_cartelera, datetime.min.time(), tzinfo=MADRID_TZ),
