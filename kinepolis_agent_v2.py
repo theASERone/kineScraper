@@ -19,7 +19,10 @@ DEBUG_DURACION = os.getenv("DEBUG_DURACION", "0").strip().lower() in {"1", "true
 patron_hora = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
 patron_fecha_iso = re.compile(r"(\d{4}-\d{2}-\d{2})")
 patron_fecha_es = re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")
-patron_sala = re.compile(r"\b(?:sala|screen|auditorium)\s*[:\-]?\s*([A-Za-z0-9]+)\b", re.IGNORECASE)
+patron_sala = re.compile(
+    r"\b(?:sala|screen|auditorium|hall|room)\s*[:\-#]?\s*([A-Za-z0-9]+)\b",
+    re.IGNORECASE,
+)
 patron_codigo_sala = re.compile(r"^[A-Za-z]?\d{1,3}[A-Za-z]?$")
 
 MESES_ES = {
@@ -709,6 +712,218 @@ def extraer_detalles_sesion(page, fecha_referencia):
     sala = extraer_sala_desde_order_list(page)
 
     return fecha_sesion, sala
+
+
+def extraer_fecha_desde_texto(texto, fecha_referencia):
+    texto_normalizado = normalizar_texto(texto)
+    texto_limpio = re.sub(r"[.,]", " ", texto_normalizado.lower())
+
+    if "pasado manana" in texto_limpio or "pasado mañana" in texto_limpio:
+        return (fecha_referencia + timedelta(days=2)).strftime("%Y-%m-%d")
+
+    if "manana" in texto_limpio or "mañana" in texto_limpio:
+        return (fecha_referencia + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    if "hoy" in texto_limpio:
+        return fecha_referencia.strftime("%Y-%m-%d")
+
+    match_iso = patron_fecha_iso.search(texto_normalizado)
+
+    if match_iso:
+        return match_iso.group(1)
+
+    match_es = patron_fecha_es.search(texto_normalizado)
+
+    if match_es:
+        dia, mes, anio = match_es.groups()
+        anio = int(anio)
+        if anio < 100:
+            anio += 2000
+        return datetime(anio, int(mes), int(dia)).strftime("%Y-%m-%d")
+
+    tokens = texto_limpio.split()
+
+    for i, token in enumerate(tokens[:-1]):
+        if not token.isdigit():
+            continue
+
+        mes = MESES_ES.get(tokens[i + 1])
+
+        if not mes:
+            continue
+
+        dia = int(token)
+        anio = fecha_referencia.year
+
+        if i + 2 < len(tokens) and tokens[i + 2].isdigit() and len(tokens[i + 2]) in {2, 4}:
+            anio = int(tokens[i + 2])
+            if anio < 100:
+                anio += 2000
+
+        fecha = datetime(anio, mes, dia)
+
+        if abs((fecha - fecha_referencia).days) > 330:
+            fecha = datetime(anio + 1, mes, dia)
+
+        return fecha.strftime("%Y-%m-%d")
+
+    return fecha_referencia.strftime("%Y-%m-%d")
+
+
+def extraer_codigo_sala_aislado(texto):
+    texto_normalizado = normalizar_texto(texto).strip().upper()
+
+    if not texto_normalizado:
+        return ""
+
+    texto_sin_espacios = texto_normalizado.replace(" ", "")
+
+    if patron_codigo_sala.fullmatch(texto_sin_espacios):
+        return texto_sin_espacios
+
+    return ""
+
+
+def extraer_sala_desde_texto(texto):
+    texto_normalizado = normalizar_texto(texto)
+    match_sala = patron_sala.search(texto_normalizado)
+
+    if match_sala:
+        return match_sala.group(1).upper()
+
+    return ""
+
+
+def buscar_sala_en_contenedores(page, selectores_contenedor, exigir_pista=False):
+    palabras_clave = ("sala", "screen", "auditorium", "hall", "room")
+
+    for selector in selectores_contenedor:
+        elementos = page.locator(selector)
+
+        for i in range(elementos.count()):
+            elemento = elementos.nth(i)
+            texto_elemento = normalizar_texto(elemento.inner_text())
+
+            if not texto_elemento:
+                continue
+
+            tiene_pista = any(palabra in texto_elemento.lower() for palabra in palabras_clave)
+            sala = extraer_sala_desde_texto(texto_elemento)
+
+            if sala:
+                return sala
+
+            if exigir_pista and not tiene_pista:
+                continue
+
+            valores = elemento.locator("[class*='value'], label, strong, span, div")
+
+            for j in range(valores.count()):
+                valor = normalizar_texto(valores.nth(j).inner_text())
+
+                if not valor:
+                    continue
+
+                sala = extraer_sala_desde_texto(valor)
+
+                if sala:
+                    return sala
+
+                if tiene_pista:
+                    codigo = extraer_codigo_sala_aislado(valor)
+                    if codigo:
+                        return codigo
+
+    return ""
+
+
+def extraer_sala_desde_order_list(page):
+    selectores_prioritarios = [
+        "div.order-list-item",
+        "[class*='order-list-item']",
+        "li.order-list-item",
+        "[class*='order-list'] li",
+    ]
+    sala = buscar_sala_en_contenedores(page, selectores_prioritarios, exigir_pista=True)
+
+    if sala:
+        return sala
+
+    selectores_secundarios = [
+        "div.order-additional-info",
+        "[class*='additional-info']",
+        "[class*='screen']",
+        "[class*='auditorium']",
+        "[class*='hall']",
+    ]
+    sala = buscar_sala_en_contenedores(page, selectores_secundarios, exigir_pista=False)
+
+    if sala:
+        return sala
+
+    return ""
+
+
+def seleccionar_fecha_cartelera(page, fecha_objetivo):
+    valor_objetivo = fecha_objetivo.strftime("%Y-%m-%d")
+    fecha_referencia = datetime.now(MADRID_TZ).date()
+    etiquetas_disponibles = []
+
+    try:
+        page.wait_for_selector("#dates_filter", timeout=10000)
+    except Exception:
+        page.wait_for_selector("li.opt, [class*='dates'] li, [class*='date'] li", timeout=10000)
+
+    opciones = page.locator("#dates_filter option")
+
+    for i in range(opciones.count()):
+        opcion = opciones.nth(i)
+        valor = (opcion.get_attribute("value") or "").strip()
+        etiqueta = normalizar_texto(opcion.inner_text())
+
+        if etiqueta:
+            etiquetas_disponibles.append(etiqueta)
+
+        if valor == valor_objetivo:
+            page.locator("#dates_filter").select_option(valor)
+            page.wait_for_timeout(1500)
+            page.wait_for_selector("[data-vsessionid]", timeout=20000)
+            return
+
+        if valor and extraer_fecha_desde_texto(etiqueta, fecha_referencia) == valor_objetivo:
+            page.locator("#dates_filter").select_option(valor)
+            page.wait_for_timeout(1500)
+            page.wait_for_selector("[data-vsessionid]", timeout=20000)
+            return
+
+    candidatos_click = page.locator(
+        "#dates_filter li.opt, #dates_filter .opt, li.opt, [class*='dates'] li, [class*='date'] li"
+    )
+
+    for i in range(candidatos_click.count()):
+        candidato = candidatos_click.nth(i)
+        etiqueta = normalizar_texto(candidato.inner_text())
+
+        if not etiqueta:
+            continue
+
+        etiquetas_disponibles.append(etiqueta)
+
+        if extraer_fecha_desde_texto(etiqueta, fecha_referencia) != valor_objetivo:
+            continue
+
+        etiqueta_locator = candidato.locator("label")
+        objetivo_click = etiqueta_locator.first if etiqueta_locator.count() > 0 else candidato
+        objetivo_click.click()
+        page.wait_for_timeout(1500)
+        page.wait_for_selector("[data-vsessionid]", timeout=20000)
+        return
+
+    etiquetas_disponibles = sorted(set(etiquetas_disponibles))
+    detalle = f" Opciones detectadas: {', '.join(etiquetas_disponibles)}." if etiquetas_disponibles else ""
+    raise ValueError(
+        f"La fecha {valor_objetivo} no estÃ¡ disponible en el selector de cartelera.{detalle}"
+    )
 
 
 def analizar_sesion(page, context, sesion, cache_duraciones, cache_modificada, totales_por_sala):
