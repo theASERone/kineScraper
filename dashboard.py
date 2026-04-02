@@ -252,7 +252,6 @@ st.dataframe(
             "sala",
             "ocupadas",
             "total",
-            "libres",
             "ocupacion_pct",
         ]
     ]
@@ -276,6 +275,7 @@ tabla_completa = df_filtrado.assign(
         "hora_fin",
         "sala",
         "total",
+        "ocupadas",
         "libres",
         "ocupacion_pct",
     ]
