@@ -274,10 +274,9 @@ tabla_completa = df_filtrado.assign(
         "hora",
         "hora_fin",
         "sala",
-        "total",
         "ocupadas",
-        "libres",
-        "ocupacion_pct",
+        "total",
+        "ocupacion %",
     ]
 ]
 
